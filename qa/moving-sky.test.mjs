@@ -1,17 +1,16 @@
 // QA for artifacts/moving-sky/index.html
 // Rerun from the repo root:  node qa/moving-sky.test.mjs
-// Needs playwright-core (default: session scratchpad copy; override with PW_CORE=/abs/path/playwright-core/index.mjs)
-// and Chrome at /Applications/Google Chrome.app. Screenshots go to $SHOTS (default: scratchpad/moving-sky).
+// Needs playwright-core and Chrome (see tests/browser.mjs for how they are found; PW_CORE= and CHROME= override).
+// Screenshots go to $SHOTS (default: <scratch>/moving-sky).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-const SCR = '/private/tmp/claude-501/-Users-shengyan-planet-x/fe009937-83d1-4373-acb2-17af4df64bc0/scratchpad';
-const { chromium } = await import(process.env.PW_CORE || SCR + '/pw/node_modules/playwright-core/index.mjs');
+import { launch, SCRATCH as SCR } from '../tests/browser.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const URL_ = pathToFileURL(path.join(here, '../artifacts/moving-sky/index.html')).href + '#test';
 const OUT = process.env.SHOTS || SCR + '/moving-sky';
 fs.mkdirSync(OUT, { recursive: true });
-const b = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' });
+const b = await launch();
 let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
 const hidden = async (pg, sel) => (await pg.locator(sel).getAttribute('hidden')) !== null;
 

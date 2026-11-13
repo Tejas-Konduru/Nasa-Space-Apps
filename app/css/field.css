@@ -135,5 +135,9 @@
 .fv-liveform select option { color: #000; }
 .fv-liveform input[aria-invalid="true"] { border-color: var(--ink); border-width: 2px; }
 .fv-liveform button { grid-column: 1 / -1; justify-self: start; }
+.fv-examples { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--ink-3); margin-top: 10px; }
+.fv-examples select { background: transparent; color: var(--ink); border: 1px solid var(--edge); border-radius: 6px; padding: 6px; font: inherit; font-size: 12px; min-width: 0; }
+.fv-examples select option { color: #000; }
+.fv-exnote { border-left: 2px solid var(--edge); padding-left: 10px; }
 .fv-example { margin-top: 8px; align-self: flex-start; font-size: 12px; }
 @media (max-width: 860px) { .fv-pill-warn { grid-column: 1 / -1; grid-row: auto; max-width: none; } }

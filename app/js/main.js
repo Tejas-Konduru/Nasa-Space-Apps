@@ -5,10 +5,27 @@ import { mountSky } from './sky/index.js';
 import { mountHud } from './sky/hud.js';
 import { mountCompare } from './compare/index.js';
 import { initDataStub, mountCandidatesStub, mountFieldStub } from './sky/fallbacks.js';
+import { parseCentre } from './sky/coords.js';
 
 const $ = id => document.getElementById(id);
 const boot = { modules: {}, ready: false };
 window.__pxBoot = boot;
+
+// Deep links: /app/?ra=&dec=[&size=″&det=1-6&t=MJD|date] opens the Field view on that patch (RA/Dec in degrees or
+// sexagesimal), so a position can be embedded or shared; ?api=https://… points the data module at a hosted data
+// server (otherwise it looks for one on localhost:8787 only when the page itself is served locally).
+const Q = new URLSearchParams(location.search);
+if (Q.get('api')) globalThis.PLANETX_SERVER = Q.get('api').replace(/\/+$/, '');
+function deepLink() {
+  if (!Q.has('ra') || !Q.has('dec')) return null;
+  const c = parseCentre(`${Q.get('ra')}, ${Q.get('dec')}`); if (!c) { console.warn('[planet-x] ?ra/?dec not understood'); return null; }
+  const f = { ra: c[0], dec: c[1] };
+  const size = +Q.get('size'); if (size >= 20 && size <= 3000) f.sizeArcsec = Math.round(size);
+  const det = +Q.get('det'); if (det >= 1 && det <= 6 && Number.isInteger(det)) f.det = det;
+  const t = (Q.get('t') || '').trim();
+  if (/^\d{5}(\.\d+)?$/.test(t)) f.t = +t; else if (t) { const ms = Date.parse(/^\d{4}-\d\d-\d\d$/.test(t) ? t + 'T00:00:00Z' : t); if (Number.isFinite(ms)) f.t = ms / 86400000 + 40587; }
+  return f;
+}
 
 async function load(name, path, exportName, fallback) {
   try {
@@ -54,5 +71,7 @@ if (!(store.get('candidates') || []).length && !(store.get('scans') || []).lengt
 if (!store.get('scan') || !(store.get('scans') || []).some(s => s.id === store.get('scan') && s.has)) {
   const first = (store.get('scans') || []).find(s => s.has); if (first) store.set('scan', first.id);
 }
+const deep = deepLink();
+if (deep) { store.set('field', deep); store.set('view', 'field'); }
 boot.ready = true;
 document.documentElement.dataset.ready = 'true';

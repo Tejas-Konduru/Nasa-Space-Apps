@@ -65,7 +65,8 @@ function label(g, text, x, y, col, fs) {
 
 /**
  * Draw markers onto the overlay canvas (sized to the displayed image × devicePixelRatio).
- * opts: {N, results, selected, showMarks, showKnown, knownPts: [[x,y],...]}
+ * opts: {N, results, selected, showMarks, showKnown, knownPts: [[x,y],...] | [{x,y,name}],
+ *        showStars?, stars?: [{x,y,g}], showBad?, flags?: Uint32Array, flagBits?: {names, hard, soft}}
  */
 export function drawOverlay(canvas, o) {
   const g = canvas.getContext('2d'), W = canvas.width, dpr = o.dpr || 1, css = W / dpr;
@@ -73,6 +74,20 @@ export function drawOverlay(canvas, o) {
   const S = W / o.N, P = (v) => (v + 0.5) * S;
   const k = Math.max(0.75, Math.min(1.25, css / 640)) * dpr;   // marker scale: readable on phones, not huge on big screens
   const fs = Math.round(13 * Math.max(0.95, Math.min(1.15, css / 640)) * dpr);
+  // Bad pixels from the SPHEREx pipeline FLAGS plane: hard flags red, soft (contamination) amber; under the markers.
+  if (o.showBad && o.flags && o.flagBits) {
+    const fb = o.flagBits, hard = fb.hard.map(n => fb.names[n]), soft = fb.soft.map(n => fb.names[n]);
+    const has = (v, bits) => bits.some(b => (v >>> b) & 1);
+    for (let i = 0; i < o.flags.length; i++) { const v = o.flags[i]; if (!v) continue;
+      const h = has(v, hard), s = !h && has(v, soft); if (!h && !s) continue;
+      g.fillStyle = h ? 'rgba(255, 70, 70, .5)' : 'rgba(255, 190, 60, .4)'; g.fillRect((i % o.N) * S, Math.floor(i / o.N) * S, S, S); }
+  }
+  // Gaia DR3 stars: thin blue rings, larger for brighter stars, no labels (high-proper-motion ones are in knownPts).
+  if (o.showStars && o.stars) {
+    g.strokeStyle = 'rgba(150, 185, 255, .85)'; g.lineWidth = 1 * k; g.setLineDash([]);
+    for (const s of o.stars) { if (s.x < -1 || s.y < -1 || s.x > o.N + 1 || s.y > o.N + 1) continue;
+      const r = Math.min(7, 2.2 + Math.max(0, 16 - s.g) * 0.5) * k; g.beginPath(); g.arc(P(s.x), P(s.y), r, 0, Math.PI * 2); g.stroke(); }
+  }
   // Ephemeris circles carry the object's name (knownPts: [x, y] or {x, y, name}).
   if (o.showKnown) for (const q of o.knownPts) {
     const x = Array.isArray(q) ? q[0] : q.x, y = Array.isArray(q) ? q[1] : q.y, name = (Array.isArray(q) ? '' : q.name) || 'Ephemeris';

@@ -6,6 +6,7 @@ import zlib from 'node:zlib';
 import { scansAt, buildField, knownAt, progress } from './lib/field.mjs';
 import { COLLECTIONS, SIA_URL } from './lib/irsa.mjs';
 import { SB_IDENT } from './lib/jpl.mjs';
+import { GAIA_TAP } from './lib/gaia.mjs';
 import { CACHE_DIR, upstreamLog, peekJSON, memoJSON } from './lib/net.mjs';
 
 const PORT = +(process.env.PORT || 8787);
@@ -39,7 +40,7 @@ const pos = sp => ({ ra: num(sp, 'ra', { min: 0, max: 360 }), dec: num(sp, 'dec'
 // Built in the background because the first sb_ident queries take tens of seconds each.
 const pending = new Map();
 async function candidatesFor(ra, dec, size) {
-  const id = JSON.stringify(['cands-v2', ra, dec, size]); // v2: pos has one entry per scan (null = not observed)
+  const id = JSON.stringify(['cands-v3', ra, dec, size]); // v3: field-v3 (Gaia high-PM stars count as known)
   const hit = await peekJSON('cands', id);
   if (hit) return hit;
   if (!pending.has(id)) {
@@ -50,10 +51,12 @@ async function candidatesFor(ra, dec, size) {
       const cands = f.known.map((k, n) => {
         const perScan = scanIds.map(s => k.samples.find(sm => f.epochs[sm.i].scan === s) || null);
         const pos = perScan.map(sm => { if (!sm) return null; const ra = f.ra0 - (sm.x - f.N / 2) * f.scale / 3600 / Math.cos(f.dec0 * Math.PI / 180); const dec = f.dec0 - (sm.y - f.N / 2) * f.scale / 3600; return [+(ra / 15).toFixed(6), +dec.toFixed(6)]; });
+        const star = k.kind === 'star';
         return {
-          id: 'k' + String(n + 1).padStart(2, '0'), name: k.name, tag: `Known small body · ${k.name}`, status: 'Matched', pipelineStatus: 'Matched',
+          id: 'k' + String(n + 1).padStart(2, '0'), name: k.name, tag: star ? `Known high-proper-motion star · ${k.name}` : `Known small body · ${k.name}`, status: 'Matched', pipelineStatus: 'Matched',
           band: `${f.band} µm`, pos, scans: scanIds.filter((_, i) => perScan[i]), match: k.name, simulated: false,
-          note: `JPL predicts this catalogued object inside the ${Math.round(f.sizeArcsec)}″ field (V≈${k.vmag ?? '?'}). This is an ephemeris prediction, not a confirmed pixel detection.`,
+          note: star ? `${k.note} Position from Gaia DR3 proper motion, not a pixel detection.`
+            : `JPL predicts this catalogued object inside the ${Math.round(f.sizeArcsec)}″ field (V≈${k.vmag ?? '?'}). This is an ephemeris prediction, not a confirmed pixel detection.`,
         };
       });
       return { ra, dec, size, field: { N: f.N, epochs: f.epochs.length }, knownStatus: f.knownStatus, candidates: cands };
@@ -66,7 +69,7 @@ async function candidatesFor(ra, dec, size) {
 const routes = {
   '/api/health': async () => ({
     ok: true, service: 'planet-x-data', version: VERSION, node: process.version, time: new Date().toISOString(),
-    upstream: { sia: SIA_URL, collections: COLLECTIONS, sbIdent: SB_IDENT }, cacheDir: CACHE_DIR, home: HOME,
+    upstream: { sia: SIA_URL, collections: COLLECTIONS, sbIdent: SB_IDENT, gaia: GAIA_TAP }, cacheDir: CACHE_DIR, home: HOME,
     recentUpstream: upstreamLog.slice(-10),
   }),
   '/api/scans': async sp => {
@@ -78,7 +81,7 @@ const routes = {
     return buildField({
       ra, dec, size: num(sp, 'size', { required: false, min: 20, max: 600 }) ?? 120,
       det: num(sp, 'det', { required: false, min: 1, max: 6 }), lam: num(sp, 'lam', { required: false, min: 0.7, max: 5.1 }),
-      perEpoch: num(sp, 'per', { required: false, min: 1, max: 4 }), known: sp.get('known') !== '0',
+      perEpoch: num(sp, 'per', { required: false, min: 1, max: 4 }), known: sp.get('known') !== '0', gaia: sp.get('gaia') !== '0',
       mjd: num(sp, 't', { required: false, min: 60000, max: 70000 }),
     });
   },

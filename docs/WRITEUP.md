@@ -14,7 +14,7 @@ SPHEREx re-maps the whole sky every six months, so anything that changes positio
 
 ## How it works
 
-1. **Find the data.** Query NASA/IPAC IRSA Simple Image Access (collections `spherex_qr2` and `spherex_qr3`, calibrated science images only) for every exposure covering the target, and group exposures into survey epochs (a gap of more than 30 days starts a new one).
+1. **Find the data.** Query NASA/IPAC IRSA Simple Image Access (every current SPHEREx all-sky collection, discovered from IRSA's catalogue so new releases are picked up automatically; `spherex_dr1` and `spherex_qr3` in Nov 2026; calibrated science images only) for every exposure covering the target, and group exposures into survey epochs (a gap of more than 30 days starts a new one).
 2. **Pair frames at matching wavelength.** SPHEREx uses linear variable filters, so the wavelength changes across the detector. Frames can only be compared at the same wavelength; otherwise a blink shows colour differences, not motion. The server reads each exposure's own spectral WCS (via a small HTTP Range read of the header and wavelength table) to find the wavelength at the target, then picks, per epoch, the exposure closest to a common reference wavelength. The Field view turns detection off for mismatched pairs and offers the nearest matching pass.
 3. **Cut out and align.** Take a 120–600″ cutout from IRSA's cutout service, subtract the zodiacal-light model, and resample every epoch onto one common grid at 6.15″ per pixel, using our own FITS and WCS (TAN-SIP) readers.
 4. **Detect.** Estimate sky and noise robustly (median and median absolute deviation) and keep local maxima above 5σ. Hysteresis: a source needs >5σ to be detected, but only a >3σ counterpart to count as "still there" in the other frame.
@@ -53,7 +53,9 @@ A standalone technical demo, now in the app's black, white and grey palette, tha
 
 **Real, with the local server running:**
 
-- SPHEREx exposures from IRSA (`spherex_qr2`, `spherex_qr3`), with wavelengths read from each file's own spectral WCS
+- Gaia DR3 stars over every live field (ESA archive), with proper motions propagated to each frame time: stars moving faster than 1″/yr (Barnard's Star) are recognised as known movers, and brightness changes at catalogued stars are reported as variability rather than motion
+- The SPHEREx pipeline's own per-pixel FLAGS plane, carried with every frame and shown as a *Bad pixels* overlay; a source on a flagged pixel is rejected as an artifact with the flag names (TRANSIENT, OUTLIER, …)
+- SPHEREx exposures from IRSA (`spherex_dr1`, `spherex_qr3` as of Nov 2026; collections discovered automatically), with wavelengths read from each file's own spectral WCS
 - Known-object positions from JPL Small-Body Identification and Horizons
 - The detection, artifact rejection and cross-matching, run on those real frames
 - The sky backdrop: NASA/Goddard SVS Deep Star Maps 2020 (built from Gaia DR2), checked for orientation against known stars and the Large Magellanic Cloud

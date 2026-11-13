@@ -5,10 +5,41 @@ import { parseHeader, listHDUs, readTableRow } from './fits.mjs';
 import { celestialWCS, spectralWCS } from './wcs.mjs';
 
 export const SIA_URL = 'https://irsa.ipac.caltech.edu/SIA';
-// Verified Oct 2026 via IRSA TAP (ivoa.obscore): spherex_qr2 (~1.1 M exposures) and spherex_qr3 (newer, growing).
-// The *_cal and *_deep collections are calibration and deep-field products; we use the all-sky survey ones.
-export const COLLECTIONS = (process.env.PLANETX_COLLECTIONS || 'spherex_qr2,spherex_qr3').split(',');
+export const TAP_URL = 'https://irsa.ipac.caltech.edu/TAP/sync';
 const DAY = 86400000;
+
+// Which SPHEREx collections to search. IRSA renames them as releases land (Oct 2026: spherex_qr2 + spherex_qr3;
+// Nov 2026: spherex_dr1 replaced qr2), so by default we ask IRSA TAP (ivoa.obscore) once a day for every
+// spherex_* collection and skip the calibration (_cal), deep-field (_deep) and spectral-cube (_cube) products.
+// PLANETX_COLLECTIONS=a,b pins the list instead.
+const PINNED = process.env.PLANETX_COLLECTIONS ? process.env.PLANETX_COLLECTIONS.split(',').filter(Boolean) : null;
+const FALLBACK = ['spherex_dr1', 'spherex_qr3']; // used if TAP is unreachable (verified Nov 2026)
+/** The collections in use (live binding: updated after the first discovery). */
+export let COLLECTIONS = PINNED || FALLBACK;
+// Discovery must never hold a request hostage to IRSA TAP (it has timed out for minutes at a time): a request waits
+// at most DISCOVERY_GRACE_MS for it, then goes ahead with the fallback list while discovery finishes in the background.
+// After a failure we don't ask TAP again for 10 minutes.
+const DISCOVERY_GRACE_MS = 3000;
+let discovered = null, retryAfter = 0, inflight = null;
+function discover() {
+  if (inflight) return inflight;
+  const q = "SELECT obs_collection, count(*) AS n FROM ivoa.obscore WHERE obs_collection LIKE 'spherex%' GROUP BY obs_collection";
+  const url = `${TAP_URL}?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=${encodeURIComponent(q)}`;
+  inflight = fetchBuf(url, { ns: 'sia', maxAgeMs: DAY, timeoutMs: 20000 }).then(buf => {
+    const names = buf.toString('utf8').trim().split('\n').slice(1).map(l => l.split(',')[0].trim()).filter(c => /^spherex_/.test(c) && !/_(cal|deep|cube)$/.test(c));
+    if (names.length) { discovered = names.sort(); COLLECTIONS = discovered; }
+  }).catch(e => { retryAfter = Date.now() + 600000; console.error('[irsa] collection discovery failed; using', COLLECTIONS.join(','), 'for the next 10 min -', e.message); })
+    .finally(() => { inflight = null; });
+  return inflight;
+}
+let graced = false; // only the first caller waits the grace period; later ones carry on with whatever list we have
+export async function collections() {
+  if (PINNED) return PINNED;
+  if (discovered || Date.now() < retryAfter) return COLLECTIONS;
+  const p = discover();
+  if (!graced) { graced = true; await Promise.race([p, new Promise(res => setTimeout(res, DISCOVERY_GRACE_MS))]); }
+  return COLLECTIONS;
+}
 
 const unesc = s => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 
@@ -32,7 +63,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 /** Every SPHEREx science exposure (all six detectors) covering (ra, dec), across COLLECTIONS. */
 export async function searchExposures(ra, dec) {
-  const lists = await mapLimit(COLLECTIONS, 2, async coll => {
+  const lists = await mapLimit(await collections(), 2, async coll => {
     const url = `${SIA_URL}?COLLECTION=${coll}&POS=CIRCLE+${ra.toFixed(6)}+${dec.toFixed(6)}+0.0003&RESPONSEFORMAT=VOTABLE&MAXREC=5000`;
     const xml = (await fetchBuf(url, { ns: 'sia', maxAgeMs: 7 * DAY, timeoutMs: 90000 })).toString('utf8');
     return parseVOTable(xml).map(r => ({ ...r, collection: coll }));

@@ -75,6 +75,14 @@ export function readImage(buf, hdu) {
   return { nx, ny, nz, data: out };
 }
 
+/** Read a BITPIX 32 (or 16 / 8) integer image as an unsigned 32-bit bitmask, e.g. the SPHEREx FLAGS plane (no BSCALE/BZERO). */
+export function readMask(buf, hdu) {
+  const kv = hdu.kv, bp = kv.BITPIX | 0, nx = kv.NAXIS1 | 0, ny = kv.NAXIS2 | 0, n = nx * ny, o = hdu.dataStart;
+  const out = new Uint32Array(n), dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  for (let i = 0; i < n; i++) out[i] = bp === 32 ? dv.getInt32(o + 4 * i, false) >>> 0 : bp === 16 ? dv.getInt16(o + 2 * i, false) >>> 0 : bp === 8 ? dv.getUint8(o + i) : 0;
+  return { nx, ny, data: out };
+}
+
 /** Read row `row` (0-based) of a binary table into {colName: number|number[]}. Supports J, E, D, I, K, B. */
 export function readTableRow(buf, hdu, row = 0) {
   const kv = hdu.kv, nf = kv.TFIELDS | 0, width = kv.NAXIS1 | 0;

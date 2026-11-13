@@ -3,6 +3,7 @@
 // Talks to the rest of the app only through the store (view, field, candidates, selectedId; flyto, toast).
 import { simulateField, analyse, diff, maxStack, radec, fmtDt, fmtRA, fmtDec, spectrum, dist, psfModel } from '../pipeline/index.js';
 import { drawImage, drawStamp, drawOverlay, glyph, KIND_NAME } from './render.js';
+import { parseCentre } from '../sky/coords.js';
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const spokenT = l => l.replace(/(\d+) (d|h|min)$/, (_, n, u) => `${n} ${{ d: 'day', h: 'hour', min: 'minute' }[u]}${n === '1' ? '' : 's'}`);
@@ -16,7 +17,25 @@ const epName = (E, e) => {
 const epSub = e => String(e.sub || e.band + ' µm').split(' · ')[0]; // the wavelength only
 const epTitle = e => `${e.label}${e.date ? ` · ${String(e.date).slice(0, 10)}` : ''}${e.obsId ? ` · ${e.obsId}` : ''}`;
 const DETECTORS = [[1, '0.75–1.09 µm'], [2, '1.10–1.62 µm'], [3, '1.63–2.41 µm'], [4, '2.42–3.82 µm'], [5, '3.83–4.41 µm'], [6, '4.42–5.00 µm']];
-const PSYCHE = { ra: 70.2635, dec: 19.0558, sizeArcsec: 300, det: 3, t: 61087.1294 }; // 16 Psyche in the 15 Feb 2026 frame (server/README.md)
+/**
+ * Built-in targets: 16 Psyche (the server's real-data test case) and the five test objects named in the challenge
+ * brief. Coordinates are for epoch 2026.0 (proper motions applied; the brief quotes WISE 0855 at its 2010 position).
+ */
+export const EXAMPLES = [
+  { id: 'psyche', label: '16 Psyche · asteroid crossing, 16 Feb 2026', ra: 70.2635, dec: 19.0558, sizeArcsec: 300, det: 3, t: 61087.1294,
+    note: 'Main-belt asteroid. Expect one Known object within ~2″ of the JPL ephemeris in the Feb 2026 frame, and nothing there in the other passes.' },
+  { id: 'barnard', label: "Barnard's Star · fastest proper motion", ra: 269.4463, dec: 4.7682, sizeArcsec: 300, det: 1,
+    note: "10.4″/yr, about 1.7 px per year here. Gaia DR3 knows it, so it is a Known star; Play shows the drift between passes." },
+  { id: 'epsindi', label: 'Epsilon Indi Ba/Bb · brown-dwarf pair', ra: 331.0960, dec: -56.8010, sizeArcsec: 300, det: 2,
+    note: 'Two T dwarfs moving 4.7″/yr, bright near 1.25 µm and absent from Gaia. Under a pixel between adjacent passes, so compare the first and last.' },
+  { id: 'wise0855', label: 'WISE 0855−0714 · coldest brown dwarf', ra: 133.7599, dec: -7.2422, sizeArcsec: 300, det: 6,
+    note: '8″/yr but extremely faint even at 4.5 µm. SPHEREx may not detect it at all; an honest null result is the expected answer.' },
+  { id: 'rwaur', label: 'RW Aurigae · variable young star', ra: 76.9565, dec: 30.4014, sizeArcsec: 300, det: 1,
+    note: 'Brightness changes at a fixed position: expect Variable flags on the Gaia star, not motion.' },
+  { id: 'rdra', label: 'R Draconis · Mira variable', ra: 248.1673, dec: 66.7550, sizeArcsec: 300, det: 1,
+    note: 'Mira-type pulsator with magnitudes of change over a year: a textbook Variable, not a mover.' },
+];
+const exampleFor = r => r && Number.isFinite(r.ra) ? EXAMPLES.find(e => Math.abs(e.ra - r.ra) < 1e-4 && Math.abs(e.dec - r.dec) < 1e-4) : null;
 const isoToMJD = ms => ms / 86400000 + 40587;
 /** "61087.13" (MJD) or an ISO date/time ("2026-02-15", "2026-02-15T03:06Z") → MJD; '' → null; junk → NaN. */
 export function parseAnchor(v) {
@@ -46,10 +65,13 @@ const TEMPLATE = `
         <button data-mode="blink" aria-pressed="true">Blink</button>
         <button data-mode="diff" aria-pressed="false">Difference</button>
         <button data-mode="track" aria-pressed="false">Track</button>
+        <button data-mode="play" aria-pressed="false" title="Cycle through every pass at the reference wavelength">Play</button>
       </div>
       <div class="seg" role="group" aria-label="Overlays">
         <button data-act="marks" aria-pressed="true">Flags</button>
         <button data-act="known" aria-pressed="false">Known objects</button>
+        <button data-act="stars" data-ref="starsbtn" aria-pressed="false" hidden title="Gaia DR3 stars (G &lt; 19) at the frame time">Gaia stars</button>
+        <button data-act="bad" data-ref="badbtn" aria-pressed="false" hidden title="Pixels the SPHEREx pipeline flagged: red = bad, amber = contaminated">Bad pixels</button>
       </div>
       <button data-act="flip" data-ref="flip" hidden>Show comparison</button>
       <span class="fv-spacer"></span>
@@ -85,13 +107,14 @@ const TEMPLATE = `
     <section class="fv-live" data-ref="live" hidden>
       <h3>Live request</h3>
       <form data-ref="liveform" class="fv-liveform">
-        <label class="fv-wide">Centre, RA and Dec in degrees <input data-ref="lpos" type="text" inputmode="decimal" placeholder="70.2635, 19.0558" autocomplete="off" spellcheck="false"></label>
+        <label class="fv-wide">Centre, RA and Dec (degrees, or h m s / d m s) <input data-ref="lpos" type="text" inputmode="text" placeholder="70.2635, 19.0558  or  08h55m10.8s −07d14m42.5s" autocomplete="off" spellcheck="false"></label>
         <label>Size <select data-ref="lsize"><option value="120">120″ (20 px)</option><option value="300">300″ (49 px)</option><option value="600">600″ (98 px)</option></select></label>
         <label>Detector <select data-ref="ldet">${DETECTORS.map(([d, r]) => `<option value="${d}">D${d} · ${r}</option>`).join('')}</select></label>
         <label class="fv-wide">Anchor on date <input data-ref="lt" type="text" inputmode="decimal" placeholder="MJD or 2026-02-15 (optional)" autocomplete="off" spellcheck="false"></label>
         <button type="submit">Load</button>
       </form>
-      <button class="ghost fv-example" data-act="psyche">Example: asteroid 16 Psyche, 15 Feb 2026</button>
+      <label class="fv-examples">Examples <select data-ref="lex" aria-label="Example targets"><option value="">Choose a target…</option>${EXAMPLES.map(e => `<option value="${e.id}">${esc(e.label)}</option>`).join('')}</select></label>
+      <p class="fv-note fv-exnote" data-ref="exnote" hidden></p>
       <p class="fv-note" data-ref="livenote"></p>
     </section>
     <section>
@@ -111,7 +134,7 @@ const TEMPLATE = `
         <button data-act="sky" class="ghost">Show on sky</button>
       </div>
     </section>
-    <p class="fv-keys">Keys: <kbd>B</kbd> <kbd>D</kbd> <kbd>T</kbd> mode · <kbd>F</kbd> flags · <kbd>K</kbd> known · <kbd>Space</kbd> flip · <kbd>N</kbd>/<kbd>P</kbd> next/previous flag · <kbd>1</kbd>–<kbd>8</kbd> compare pass · <kbd>A</kbd> add · <kbd>S</kbd> show on sky · <kbd>Esc</kbd> clear / back</p>
+    <p class="fv-keys">Keys: <kbd>B</kbd> <kbd>D</kbd> <kbd>T</kbd> <kbd>L</kbd> blink / difference / track / play · <kbd>F</kbd> flags · <kbd>K</kbd> known · <kbd>G</kbd> Gaia · <kbd>X</kbd> bad pixels · <kbd>Space</kbd> flip / next pass · <kbd>N</kbd>/<kbd>P</kbd> next/previous flag · <kbd>1</kbd>–<kbd>8</kbd> compare pass · <kbd>A</kbd> add · <kbd>S</kbd> show on sky · <kbd>Esc</kbd> clear / back</p>
   </aside>
 </div>`;
 
@@ -127,8 +150,8 @@ export function mountField(el, store) {
   $('labB').id = uid + '-lb'; $('epB').setAttribute('aria-labelledby', uid + '-lb');
   $('img').setAttribute('aria-label', 'Infrared sky image, false colour. Flagged sources are listed under Flagged sources; select one there to vet it.');
 
-  let field = null, A = 0, B = 0, mode = 'blink', showMarks = true, showKnown = false, stretch = 1;
-  let blinkPhase = 0, selected = null, results = [], timer = null, shown = null, loadSeq = 0, loadedFor;
+  let field = null, A = 0, B = 0, mode = 'blink', showMarks = true, showKnown = false, showStars = false, showBad = false, stretch = 1;
+  let blinkPhase = 0, playIdx = 0, selected = null, results = [], timer = null, shown = null, loadSeq = 0, loadedFor;
   const reducedMQ = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : { matches: false, addEventListener() {} };
   const visible = () => store.get('view') === 'field';
 
@@ -243,20 +266,47 @@ export function mountField(el, store) {
     sz.value = String(size); $('ldet').value = String(r.det || (field && !loading && field.detector) || 1);
     $('lt').value = Number.isFinite(r.t) ? String(r.t) : '';
     $('lpos').value = Number.isFinite(r.ra) ? `${+r.ra.toFixed(5)}, ${+r.dec.toFixed(5)}` : '';
-    $('livenote').textContent = loading || !field || field.simulated ? '' : `Real SPHEREx frames on detector D${field.detector} at ${field.band} µm. The artifact test uses a PSF width of ${psfModel(field).sigma.toFixed(2)} px ${psfModel(field).from === 'stars' ? `measured from ${psfModel(field).nStars} stars in these frames` : '(typical value; too few stars to measure)'}.`;
+    const ex = exampleFor(r); $('lex').value = ex ? ex.id : '';
+    const note = $('exnote'); note.hidden = !ex; note.textContent = ex ? ex.note : '';
+    let extra = '';
+    if (field && !loading && !field.simulated) {
+      const n = field.stars ? field.stars.length : 0, fl = field.epochs.some(e => Number.isFinite(e.flagged));
+      extra = ` ${n ? `${n} Gaia DR3 stars overlaid (G < 19)` : field.starsStatus && field.starsStatus.startsWith('failed') ? 'Gaia lookup failed' : 'No Gaia stars'}${fl ? `; ${(Math.max(...field.epochs.map(e => e.flagged || 0)) * 100).toFixed(0)}% of pixels carry a pipeline flag in the worst frame` : ''}.`;
+    }
+    $('livenote').textContent = loading || !field || field.simulated ? '' : `Real SPHEREx frames on detector D${field.detector} at ${field.band} µm. The artifact test uses a PSF width of ${psfModel(field).sigma.toFixed(2)} px ${psfModel(field).from === 'stars' ? `measured from ${psfModel(field).nStars} stars in these frames` : '(typical value; too few stars to measure)'}.` + extra;
   }
   function submitLive(e) {
     e.preventDefault();
-    const r = req || store.get('field') || {}, t = parseAnchor($('lt').value);
+    const t = parseAnchor($('lt').value);
     if (Number.isNaN(t)) { $('lt').setAttribute('aria-invalid', 'true'); announce('Anchor date not understood. Use an MJD like 61087.13 or a date like 2026-02-15.'); $('lt').focus(); return; }
     $('lt').removeAttribute('aria-invalid');
-    const m = $('lpos').value.trim().match(/^([+-]?\d+(?:\.\d+)?)\s*[, ]\s*([+-−]?\d+(?:\.\d+)?)$/);
-    const ra = m ? +m[1] : NaN, dec = m ? +m[2].replace('−', '-') : NaN;
-    if (!(ra >= 0 && ra < 360 && dec >= -90 && dec <= 90)) { $('lpos').setAttribute('aria-invalid', 'true'); announce('Centre not understood. Use RA, Dec in degrees, e.g. 70.2635, 19.0558.'); $('lpos').focus(); return; }
+    const c = parseCentre($('lpos').value);
+    if (!c) { $('lpos').setAttribute('aria-invalid', 'true'); announce('Centre not understood. Use RA, Dec in degrees (70.2635, 19.0558) or sexagesimal (08h55m10.8s −07d14m42.5s).'); $('lpos').focus(); return; }
     $('lpos').removeAttribute('aria-invalid');
-    const next = { ra, dec, sizeArcsec: +$('lsize').value, det: +$('ldet').value };
+    const next = { ra: +c[0].toFixed(5), dec: +c[1].toFixed(5), sizeArcsec: +$('lsize').value, det: +$('ldet').value };
     if (t != null) next.t = t;
     store.set('field', next);
+  }
+  /** Keep the address bar shareable: /app/?ra=&dec=&size=&det=[&t=] while a field is open, clean again on the sky. */
+  function syncUrl(on) {
+    if (typeof history === 'undefined' || typeof location === 'undefined' || !history.replaceState) return;
+    try {
+      const u = new URL(location.href);
+      ['ra', 'dec', 'size', 'det', 't'].forEach(k => u.searchParams.delete(k));
+      const r = on ? (field && field.request) || req || (field ? { ra: field.ra0, dec: field.dec0, sizeArcsec: field.N * field.scale } : null) : null;
+      if (r && Number.isFinite(r.ra) && Number.isFinite(r.dec)) {
+        u.searchParams.set('ra', String(+r.ra.toFixed(5))); u.searchParams.set('dec', String(+r.dec.toFixed(5)));
+        if (Number.isFinite(r.sizeArcsec)) u.searchParams.set('size', String(Math.round(r.sizeArcsec)));
+        if (r.det) u.searchParams.set('det', String(r.det));
+        if (Number.isFinite(r.t)) u.searchParams.set('t', String(r.t));
+      }
+      if (u.href !== location.href) history.replaceState(history.state, '', u.href);
+    } catch { /* file:// or a sandboxed frame: no shareable URL */ }
+  }
+  function syncOverlayButtons() {
+    const live = field && !field.simulated;
+    $('starsbtn').hidden = !(live && field.stars && field.stars.length);
+    $('badbtn').hidden = !(live && typeof field.flags === 'function' && field.flagBits);
   }
   function defaultCompare(f, a) {
     const E = f.epochs, ta = E[a].t; let best = -1, bd = 1e9;
@@ -267,14 +317,14 @@ export function mountField(el, store) {
   function setField(f, keep) {
     const same = keep && field && field.epochs.length === f.epochs.length;
     field = f; lastXY = null;
-    if (!same) { A = 0; B = defaultCompare(f, 0); selected = null; $('epA').innerHTML = ''; $('epB').innerHTML = ''; }
+    if (!same) { A = 0; B = defaultCompare(f, 0); playIdx = 0; selected = null; $('epA').innerHTML = ''; $('epB').innerHTML = ''; }
     const [ra, dec] = radec(f, f.N / 2, f.N / 2), size = f.N * f.scale / 60;
     $('pos').textContent = `RA ${fmtRA(ra)}, Dec ${fmtDec(dec)} · ${size.toFixed(1)}′ × ${size.toFixed(1)}′${f.simulated ? '' : ` · ${f.N}×${f.N} px`}`;
     const src = $('source');
     src.textContent = f.simulated ? (f.fallbackReason ? `Simulated field · ${f.fallbackReason}` : 'Simulated field') : `Live · SPHEREx D${f.detector ?? '?'} · ${f.band} µm`;
     src.classList.toggle('fv-pill-warn', !!f.fallbackReason);
     src.title = f.simulated ? 'Simulated star field and planted movers. Nothing here is a real detection.' : 'Real SPHEREx images from NASA/IPAC IRSA, analysed in your browser. Flags are candidates, not detections.';
-    update(); renderKnownNote(); renderLive();
+    syncOverlayButtons(); update(); renderKnownNote(); renderLive(); if (visible()) syncUrl(true);
     if (visible() && !same) announce(`Field loaded${f.simulated ? ', simulated' : ', live SPHEREx data'}. ${results.length} flagged source${results.length === 1 ? '' : 's'}.`);
     else if (visible() && same) announce(`Known objects checked. ${results.length} flagged source${results.length === 1 ? '' : 's'}.`);
   }
@@ -358,6 +408,9 @@ export function mountField(el, store) {
       const e = E[r.to ? B : A], psf = psfModel(field);
       rows.push(['Data', `Live SPHEREx, D${field.detector ?? '?'} at ${e.lambda ?? e.band} µm, ${String(e.date || '').slice(0, 10)}`]);
       if (r.kind === 'art' || r.kind === 'cand') rows.push(['PSF test', `σ ${psf.sigma.toFixed(2)} px; spike ${(r.to || r.from).spike.toFixed(1)} (limit ${psf.spikeMax.toFixed(1)})`]);
+      const fl = flagNamesAt(r); if (fl) rows.push(['SPHEREx flags', fl]);
+      if (r.star) rows.push(['Gaia DR3', `${r.star.name}, G ${r.star.g.toFixed(1)}${r.star.pm ? `, ${r.star.pm.toFixed(2)}″/yr` : ''}`]);
+      if (r.kind === 'known' && r.obj) rows.push([r.obj.kind === 'star' ? 'Catalogue' : 'Ephemeris', `${r.obj.source}${r.obj.kind === 'star' && r.obj.pmArcsecYr ? `, ${r.obj.pmArcsecYr}″/yr` : ''}${Number.isFinite(r.obj.vmag) ? `, ${r.obj.kind === 'star' ? 'G' : 'V'} ${r.obj.vmag}` : ''}`]);
     }
     if (r.kind === 'cand' && field.simulated) rows.push(['Spectrum', 'Water-ice absorption at 1.5, 2.0 and 3 µm, which is why it fades at 3.29 µm']);
     rows.push(['Verdict', VERDICT[r.kind]]);
@@ -382,6 +435,14 @@ export function mountField(el, store) {
     const existing = r.kind === 'cand' && onList(r);
     add.textContent = existing ? 'On review list' : 'Add to review list'; add.title = existing ? existing.name : '';
     add.setAttribute('aria-disabled', String(!!existing)); add.classList.toggle('fv-done', !!existing);
+  }
+  /** Names of the SPHEREx pipeline flags under a result's pixel, in the frame it was found in ('none' when clean). */
+  function flagNamesAt(r) {
+    if (!field || typeof field.flags !== 'function' || !field.flagBits) return null;
+    const fl = field.flags(r.to ? B : A); if (!fl) return null;
+    const p = r.to || r.from || r, x = Math.round(p.x), y = Math.round(p.y); if (x < 0 || y < 0 || x >= field.N || y >= field.N) return null;
+    const v = fl[y * field.N + x], names = Object.entries(field.flagBits.names).filter(([n, b]) => n !== 'SOURCE' && ((v >>> b) & 1)).map(([n]) => n);
+    return names.length ? names.join(', ') : 'none';
   }
   function addToReview() {
     const r = selected; if (!r || r.kind !== 'cand') return;
@@ -427,6 +488,8 @@ export function mountField(el, store) {
       flash.textContent = showB ? `Compare · ${epName(E, E[B])}` : `Reference · ${epName(E, E[A])}`; knownT = [E[showB ? B : A].t]; }
     else if (mode === 'diff') { shown = diff(field, A, B); drawImage(img, shown, N, true, stretch); flash.textContent = 'Compare − Reference'; knownT = [E[A].t, E[B].t];
       legend.innerHTML = '<i aria-hidden="true"></i><span>fainter · brighter</span>'; }
+    else if (mode === 'play') { const seq = playSeq(), n = playIdx % seq.length, i = seq[n]; shown = field.frame(i); drawImage(img, shown, N, false, stretch);
+      flash.textContent = `${epName(E, E[i])} · ${E[i].date ? String(E[i].date).slice(0, 10) : E[i].label} (${n + 1}/${seq.length})`; knownT = [E[i].t]; }
     else { const band = E[A].band, c = maxStack(field, band, A, B); shown = c.img; drawImage(img, shown, N, false, stretch); knownT = c.ts.slice();
       const n = knownT.length, [e0, e1] = E[A].t <= E[B].t ? [A, B] : [B, A];
       flash.textContent = `Max-stack of ${n} pass${n === 1 ? '' : 'es'} at ${band} µm, ${epName(E, E[e0])} to ${epName(E, E[e1])}`; }
@@ -440,19 +503,39 @@ export function mountField(el, store) {
     if (ov.width !== W) { ov.width = ov.height = W; }
     const matched = field.epochs[A].band === field.epochs[B].band;
     const knownPts = []; for (const t of lastKnownT) for (const k of field.known || []) { const q = k.pos(t); if (q) knownPts.push({ x: q[0], y: q[1], name: k.name }); }
-    drawOverlay(ov, { N: field.N, dpr, results: matched ? results : [], selected, showMarks, showKnown, knownPts });
+    // Gaia stars at the time of the frame on screen; bad pixels from that frame's FLAGS plane (none for a stack).
+    const t = lastKnownT.length ? lastKnownT[0] : field.epochs[A].t;
+    const stars = showStars && field.stars ? field.stars.map(s => { const [x, y] = s.pos(t); return { x, y, g: s.g }; }) : null;
+    const fi = mode === 'blink' ? (blinkPhase % 2 === 1 ? B : A) : mode === 'diff' ? B : mode === 'play' ? playFrame() : null;
+    const flags = showBad && fi != null && typeof field.flags === 'function' ? field.flags(fi) : null;
+    drawOverlay(ov, { N: field.N, dpr, results: matched && mode !== 'play' ? results : [], selected, showMarks, showKnown, knownPts, showStars, stars, showBad, flags, flagBits: field.flagBits || null });
   }
+  /** Frames at the reference pass's wavelength in time order: what Play cycles through. */
+  const playSeq = () => { const E = field.epochs, band = E[A].band, s = E.map((e, i) => i).filter(i => E[i].band === band); s.sort((i, j) => E[i].t - E[j].t); return s.length ? s : [A]; };
+  const playFrame = () => { const s = playSeq(); return s[playIdx % s.length]; };
   function syncFlip() {
-    const f = $('flip'); f.hidden = !(mode === 'blink' && reducedMQ.matches);
-    f.textContent = blinkPhase % 2 === 1 ? 'Show reference' : 'Show comparison';
+    const f = $('flip'); f.hidden = !((mode === 'blink' || mode === 'play') && reducedMQ.matches);
+    f.textContent = mode === 'play' ? 'Next pass' : blinkPhase % 2 === 1 ? 'Show reference' : 'Show comparison';
   }
-  function setTimer() { clearInterval(timer); timer = null; if (mode === 'blink' && !reducedMQ.matches && visible() && field) timer = setInterval(() => { blinkPhase++; render(); }, 650); syncFlip(); }
-  function setMode(m) { mode = m; el.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === m))); blinkPhase = 0; render(); setTimer();
-    announce({ blink: 'Blink', diff: 'Difference image', track: 'Track: max-stack' }[m]); }
-  function flip() { if (mode !== 'blink') return; blinkPhase++; render(); syncFlip(); announce(`Showing ${$('flash').textContent}`); }
+  function setTimer() {
+    clearInterval(timer); timer = null;
+    if (!reducedMQ.matches && visible() && field) {
+      if (mode === 'blink') timer = setInterval(() => { blinkPhase++; render(); }, 650);
+      else if (mode === 'play') timer = setInterval(() => { playIdx++; render(); }, 900);
+    }
+    syncFlip();
+  }
+  function setMode(m) { mode = m; el.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === m))); blinkPhase = 0; playIdx = 0; render(); setTimer();
+    announce({ blink: 'Blink', diff: 'Difference image', track: 'Track: max-stack', play: field ? `Play: ${playSeq().length} passes at ${field.epochs[A].band} µm in time order${reducedMQ.matches ? '; Space or Next pass steps' : ''}` : 'Play' }[m]); }
+  function flip() {
+    if (mode === 'play') { playIdx++; render(); syncFlip(); announce(`Showing ${$('flash').textContent}`); return; }
+    if (mode !== 'blink') return; blinkPhase++; render(); syncFlip(); announce(`Showing ${$('flash').textContent}`);
+  }
   const toggle = (which) => {
-    if (which === 'marks') showMarks = !showMarks; else showKnown = !showKnown;
-    el.querySelector(`[data-act="${which}"]`).setAttribute('aria-pressed', String(which === 'marks' ? showMarks : showKnown)); renderOverlay();
+    if (which === 'marks') showMarks = !showMarks; else if (which === 'known') showKnown = !showKnown; else if (which === 'stars') showStars = !showStars; else if (which === 'bad') showBad = !showBad;
+    const on = { marks: showMarks, known: showKnown, stars: showStars, bad: showBad }[which];
+    el.querySelector(`[data-act="${which}"]`).setAttribute('aria-pressed', String(on)); renderOverlay();
+    if (which === 'stars' || which === 'bad') announce(`${which === 'stars' ? 'Gaia stars' : 'Bad pixels'} ${on ? 'shown' : 'hidden'}`);
   };
 
   // ---------- events ----------
@@ -461,15 +544,19 @@ export function mountField(el, store) {
     if (b.dataset.mode) return setMode(b.dataset.mode);
     switch (b.dataset.act) {
       case 'back': store.set('view', 'sky'); break;
-      case 'marks': case 'known': toggle(b.dataset.act); break;
+      case 'marks': case 'known': case 'stars': case 'bad': toggle(b.dataset.act); break;
       case 'flip': flip(); break;
       case 'add': addToReview(); break;
       case 'sky': showOnSky(); break;
       case 'cancel': cancelLoad(); break;
-      case 'psyche': store.set('field', { ...PSYCHE }); break;
     }
   });
   $('liveform').addEventListener('submit', submitLive);
+  $('lex').addEventListener('change', e => {
+    const ex = EXAMPLES.find(x => x.id === e.target.value); if (!ex) return;
+    const next = { ra: ex.ra, dec: ex.dec, sizeArcsec: ex.sizeArcsec, det: ex.det }; if (ex.t) next.t = ex.t;
+    store.set('field', next);
+  });
   $('stretch').addEventListener('input', e => { stretch = parseFloat(e.target.value); requestAnimationFrame(render); });
   const ov = $('ov');
   const toPix = e => { const rect = ov.getBoundingClientRect(); return [(e.clientX - rect.left) / rect.width * field.N, (e.clientY - rect.top) / rect.height * field.N]; };
@@ -491,9 +578,10 @@ export function mountField(el, store) {
     if ([...document.querySelectorAll('dialog[open], [role="dialog"]')].some(d => !el.contains(d) && !d.hidden && d.getClientRects().length && getComputedStyle(d).visibility !== 'hidden')) return; // help sheet, Export dialog…
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     if (k === 'Escape') { if (loading) cancelLoad(); else if (selected) { select(null); } else store.set('view', 'sky'); }
-    else if (k === 'b') setMode('blink'); else if (k === 'd') setMode('diff'); else if (k === 't') setMode('track');
+    else if (k === 'b') setMode('blink'); else if (k === 'd') setMode('diff'); else if (k === 't') setMode('track'); else if (k === 'l') setMode('play');
     else if (k === 'f') toggle('marks'); else if (k === 'k') toggle('known');
-    else if (k === ' ') { if (mode === 'blink' && reducedMQ.matches && tag !== 'BUTTON') flip(); else return; }
+    else if (k === 'g') { if ($('starsbtn').hidden) return; toggle('stars'); } else if (k === 'x') { if ($('badbtn').hidden) return; toggle('bad'); }
+    else if (k === ' ') { if (((mode === 'blink' && reducedMQ.matches) || mode === 'play') && tag !== 'BUTTON') flip(); else return; }
     else if (k === 'n' || k === 'p') { if (!results.length) return; const i = results.indexOf(selected), j = i < 0 ? (k === 'n' ? 0 : results.length - 1) : (i + (k === 'n' ? 1 : -1) + results.length) % results.length; select(results[j]); }
     else if (/^Digit[1-9]$/.test(e.code) && !e.shiftKey) { const i = +e.code.slice(5) - 1; if (!field || i >= field.epochs.length) return; B = i; update(); }
     else if (k === 'a') { if (selected?.kind === 'cand') addToReview(); else return; }
@@ -510,10 +598,10 @@ export function mountField(el, store) {
     if (on) {
       if (!wasOn) returnFocus = document.activeElement;
       if (loadedFor !== store.get('field') || (!field && !loading)) load();
-      else if (field && !loading) { render(); setTimer(); }
+      else if (field && !loading) { render(); setTimer(); syncUrl(true); }
       requestAnimationFrame(() => { renderOverlay(); if (!el.contains(document.activeElement)) $('h').focus({ preventScroll: true }); });
     } else {
-      clearInterval(timer); timer = null;
+      clearInterval(timer); timer = null; if (wasOn) syncUrl(false);
       // give focus back to whatever opened the view (as Compare does); defer so the shell can update inert first
       const r = returnFocus;
       if (wasOn && (el.contains(document.activeElement) || document.activeElement === document.body))
@@ -528,7 +616,7 @@ export function mountField(el, store) {
   show(store.get('view'));
 
   const handle = el.__fv = { // handle for tests / the dev page
-    get state() { return { A, B, mode, selected, results, field, loading, knownState }; },
+    get state() { return { A, B, mode, playIdx, showStars, showBad, selected, results, field, loading, knownState }; },
     setPair(a, b) { A = a; B = b; update(); },
   };
   return handle;

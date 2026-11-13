@@ -93,6 +93,41 @@ export function parseDec(s) {
   return m[1] && m[1] !== '+' ? -v : v;
 }
 
+/** Dec token with optional seconds → degrees: "+41d12m33.5s", "−7°14′42.53″", "-07:14:42.5", "41 12 42", "-12.5". */
+export function parseDecFull(s) {
+  s = s.trim();
+  const m = s.match(new RegExp(`^(${SIGN}?)\\s*(\\d+(?:\\.\\d+)?)(?:\\s*(?:d|°|:|\\s)\\s*(\\d+(?:\\.\\d+)?)(?:\\s*(?:m|′|')|:|\\s)?\\s*(?:(\\d+(?:\\.\\d+)?)\\s*(?:s|″|")?)?)?\\s*$`, 'i'));
+  if (!m) return null;
+  const v = +m[2] + (+m[3] || 0) / 60 + (+m[4] || 0) / 3600;
+  if (v > 90 || (+m[3] || 0) >= 60 || (+m[4] || 0) >= 60) return null;
+  return m[1] && m[1] !== '+' ? -v : v;
+}
+
+/**
+ * A field centre from free text → [raDeg, decDeg], or null. RA is degrees when it is a bare number ("133.76"),
+ * otherwise sexagesimal hours ("08h55m10.83s", "08:55:10.8", "8 55 10.8"); Dec is degrees or sexagesimal with
+ * optional seconds. Parts are separated by a comma, or by the whitespace before the Dec sign / after a full RA.
+ */
+export function parseCentre(q) {
+  q = (q || '').trim().replace(/\s+/g, ' ');
+  if (!q) return null;
+  let parts = q.split(/\s*,\s*/);
+  if (parts.length !== 2) {
+    const m = q.match(/^(.+?)\s+([+\-−–]\s*\d.*)$/); // "… +41 12 33": split at the sign
+    if (m) parts = [m[1], m[2]];
+    else { const t = q.split(' '); parts = t.length === 2 ? t : t.length === 6 ? [t.slice(0, 3).join(' '), t.slice(3).join(' ')] : []; }
+  }
+  if (parts.length !== 2) return null;
+  const raTok = parts[0].trim(), decTok = parts[1].trim();
+  let ra;
+  if (/^\d+(\.\d+)?$/.test(raTok)) ra = +raTok;
+  else if (/^\d+ \d+ \d+(\.\d+)?$/.test(raTok)) { const [h, m, s] = raTok.split(' ').map(Number); ra = m < 60 && s < 60 ? (h + m / 60 + s / 3600) * 15 : NaN; }
+  else { const h = parseRA(raTok); ra = h === null ? NaN : h * 15; }
+  const dec = parseDecFull(decTok);
+  if (!(ra >= 0 && ra < 360) || dec === null) return null;
+  return [ra, dec];
+}
+
 /**
  * Parse the go-to box. Returns {kind:'candidate', n} (1-based), {kind:'pos', raH, decD}, or null.
  * "candidate 3", "cand 3", "c3", "c03", "3", "#3" → candidate 3.

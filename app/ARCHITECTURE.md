@@ -70,6 +70,23 @@ Views show/hide themselves from `store.on('view', …)`; the shell owns the top-
 
 Server (`server/index.mjs`, Node ≥ 20, no npm deps): `/api/health`, `/api/scans?ra&dec`, `/api/field?ra&dec&size`
 (epochs + frames as Float32 binary or base64), `/api/known?ra&dec&t` (JPL small-body identification). Disk cache in `server/.cache/` (gitignored).
+The team's FastAPI port (Tejas-Konduru/Spherex_Backend) serves the same routes and the same JSON.
+
+Live `Field`s carry three things the simulation doesn't (all optional; the pipeline checks for them):
+- `field.flags(i) → Uint32Array | null` and `field.flagBits = {names, hard, soft}` — the SPHEREx L2 FLAGS plane per frame,
+  resampled onto the grid (bitwise OR of the source pixels) plus our `MASKED` (bit 30: the pixel was NaN and got the median)
+  and `OFF_IMAGE` (31). `detect.js` turns a source on a hard-flagged pixel into an artifact and appends soft flags
+  (ghost, persistence, halo) to the detail. `epochs[].flagged` is the fraction of flagged pixels.
+- `field.stars[]` — Gaia DR3 sources with G < 19: `{id, name, g, rp, pm, pos(t) → [x, y]}`, proper motion propagated from
+  J2016.0 by `toField`. A new or vanished source on a Gaia star is variability (`var`), never a mover.
+- `field.known[]` entries have `kind: 'sb' | 'star'`; stars moving faster than 1″/yr come from Gaia with `source: 'Gaia DR3
+  proper motion'` and `pmArcsecYr`. A known mover whose shift is below the 2.2 px pairing radius is still reported
+  (`kind: 'known'`, from the predicted positions, or `predicted: true` when nothing clean sits there).
+
+Deep links (`main.js`): `/app/?ra=&dec=[&size=&det=&t=]` opens the Field on that patch (degrees or sexagesimal via
+`sky/coords.js parseCentre`); `?api=https://…` points the data module at a hosted data server. The field view keeps the
+address bar in sync (`history.replaceState`) while a field is open. Built-in examples (`field/index.js EXAMPLES`): 16 Psyche
+plus the challenge brief's five test targets.
 
 ## Honesty rule
 
@@ -78,9 +95,10 @@ owned by shell). Never call anything a detection; unmatched movers are "candidat
 
 ## Testing
 
-Headless Chrome via playwright-core at
-`/private/tmp/claude-501/-Users-shengyan-planet-x/fe009937-83d1-4373-acb2-17af4df64bc0/scratchpad/pw/node_modules/playwright-core/index.mjs`
-(`executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'`, args
-`['--use-angle=swiftshader','--enable-unsafe-swiftshader']`). ES modules need http, not file:// — start your own
+Headless Chrome via playwright-core, launched through `tests/browser.mjs` (`launch()`): it finds playwright-core in
+`$PW_CORE`, the repo's `node_modules/` (`npm i --no-save playwright-core@1.49.1`) or the session scratchpad, and Chrome in
+`$CHROME` or the platform's usual place. WebGL runs on the Mac's GPU (`--use-angle=metal`) by default on macOS and on
+SwiftShader elsewhere; `CHROME_GL=swiftshader|metal|gl` overrides. `serve(port, root)` starts the static server and
+refuses a stale one that serves other files. ES modules need http, not file:// — start your own
 `python3 -m http.server <port> --bind 127.0.0.1` from your worktree root on a free port (8100–8199). Never npm install into the repo.
 Put tests under `tests/`; screenshots in the scratchpad, never in git.

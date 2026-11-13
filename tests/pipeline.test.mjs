@@ -119,5 +119,62 @@ ok(Math.abs(P.sigmaOfSpike(P.spikeOf(0.68)) - 0.68) < 1e-6 && P.spikeLimit(0.68)
   ok(P.analyse(f, 0, 2).every(q => q.kind !== 'cand'), 'Sep 2025 vs Sep 2026: no candidates');
 }
 
+// 11. SPHEREx pipeline flags and Gaia stars on a synthetic live field: hard flags make artifacts, Gaia stars turn
+//     appearances/disappearances into variability, a slow known mover is reported from its predicted position.
+{
+  const N = 48, S = 0.55, r = P.rng(7), stars = [];
+  for (let i = 0; i < 10; i++) stars.push({ x: 6 + r() * 20, y: 6 + r() * 36, a: 3 + 30 * r() }); // stars keep to x < 26; test sources sit to the right
+  const psf = (g, x, y, a) => { for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const X = Math.round(x) + dx, Y = Math.round(y) + dy; if (X < 0 || Y < 0 || X >= N || Y >= N) continue;
+    g[Y * N + X] += a * Math.exp(-((X - x) ** 2 + (Y - y) ** 2) / (2 * S * S)); } };
+  const mk = i => { const q = P.rng(300 + i), g = new Float32Array(N * N); for (let p = 0; p < N * N; p++) g[p] = 0.5 + 0.02 * P.gauss(q);
+    for (const s of stars) psf(g, s.x, s.y, s.a);
+    psf(g, 33.3 + 1.2 * i, 30.4, 25);                   // slow known mover: 1.2 px per epoch (under the 2.2 px pairing radius)
+    if (i === 1) { psf(g, 40.3, 10.6, 20); psf(g, 30.4, 40.3, 18); psf(g, 34.6, 8.4, 12); }   // flagged hit; new source on a Gaia star; new source, nothing there
+    if (i === 0) psf(g, 36.3, 20.6, 15);                  // star that fades below detection (on a Gaia star)
+    return g; };                                          // (fractional positions, like real stars: integer-centred Gaussians look like spikes)
+  const frames = [mk(0), mk(1)];
+  const flagBits = { names: { TRANSIENT: 0, OUTLIER: 19, PERSIST: 17, SOURCE: 21 }, hard: ['TRANSIENT', 'OUTLIER'], soft: ['PERSIST'] };
+  const flags = [new Uint32Array(N * N), new Uint32Array(N * N)];
+  flags[1][11 * N + 40] = (1 << 0) | (1 << 19);        // hard flags under the hit's peak pixel
+  flags[1][8 * N + 35] = 1 << 17;                        // soft flag under the plain new source
+  const gaia = [{ name: 'Gaia DR3 1', g: 15.2, pm: 0.01, pos: () => [30.4, 40.3] }, { name: 'Gaia DR3 2', g: 16.0, pm: 0.02, pos: () => [36.3, 20.6] }];
+  const mover = { name: 'Fast star', kind: 'star', source: 'Gaia DR3 proper motion', pos: t => [33.3 + 1.2 * (t / 180), 30.4] };
+  const f = { N, scale: 6.15, ra0: 10, dec0: 5, epochs: [0, 180].map(t => ({ t, band: 1.02, label: t + ' d', sub: '' })), frame: i => frames[i], flags: i => flags[i], flagBits, known: [mover], stars: gaia, simulated: false };
+  const res = P.analyse(f, 0, 1), at = (x, y) => res.find(q => Math.hypot(q.x - x, q.y - y) < 1.5);
+  ok(at(40.3, 10.6)?.kind === 'art' && /Flagged by the SPHEREx pipeline/.test(at(40.3, 10.6).title) && /TRANSIENT, OUTLIER/.test(at(40.3, 10.6).detail), 'hard pipeline flags → artifact naming the bits');
+  ok(at(30.4, 40.3)?.kind === 'var' && at(30.4, 40.3).title === 'Brightened star' && /Gaia DR3 1/.test(at(30.4, 40.3).detail), 'new source on a Gaia star → variable (brightened star)');
+  ok(at(36.3, 20.6)?.kind === 'var' && at(36.3, 20.6).title === 'Faded star' && /Gaia DR3 2/.test(at(36.3, 20.6).detail), 'vanished source on a Gaia star → variable (faded star): ' + JSON.stringify(res.map(q => `${q.kind}:${q.title}@${q.x.toFixed(1)},${q.y.toFixed(1)}`)));
+  ok(at(34.6, 8.4)?.kind === 'cand' && /SPHEREx pipeline flags: PERSIST/.test(at(34.6, 8.4).detail), 'soft flag is appended to a candidate, not a verdict: ' + JSON.stringify(at(34.6, 8.4)?.detail));
+  const kn = res.find(q => q.kind === 'known');
+  ok(kn && kn.title === 'Fast star' && /matches proper motion/.test(kn.detail) && kn.from && kn.to && Math.abs(kn.to.x - 34.5) < 0.5, 'sub-threshold known mover reported from the predicted positions: ' + (kn && kn.detail));
+  ok(!res.some(q => q.kind === 'left'), 'a known mover still inside the field is never "left the cutout"');
+  ok(res.filter(q => q.kind === 'cand').length === 1, 'exactly one candidate: ' + JSON.stringify(res.map(q => q.kind + ':' + q.title)));
+  // no clean centroid at the prediction → still reported, as a prediction
+  const f2 = { ...f, known: [{ ...mover, pos: t => [40, 40 + 1.5 * (t / 180)] }] };
+  const kp = P.analyse(f2, 0, 1).find(q => q.kind === 'known');
+  ok(kp && kp.predicted && /Predicted here/.test(kp.detail), 'known mover with nothing detectable at the prediction → reported as predicted');
+}
+
+// 12. real fields with FLAGS + Gaia (fixtures from /api/field, Nov 2026, collections spherex_dr1 + spherex_qr3)
+{
+  const { toField } = await import('../app/js/data/index.js');
+  const psy = toField(JSON.parse(fs.readFileSync(path.join(here, 'fixtures/spherex-psyche-field-v3.json'), 'utf8')));
+  ok(typeof psy.flags === 'function' && psy.flags(0) instanceof Uint32Array && psy.flags(0).length === psy.N * psy.N && psy.flagBits.names.MASKED === 30, 'v3 field decodes FLAGS planes and bit names');
+  ok(psy.stars.length > 20 && psy.stars.every(s => typeof s.pos(0)[0] === 'number'), `Gaia stars decoded with pos(t) (${psy.stars.length})`);
+  const r01 = P.analyse(psy, 0, 1), p = r01.find(q => /Psyche/.test(q.title));
+  ok(p && p.kind === 'known' && Math.hypot(p.x - 21.49, p.y - 23.58) < 0.33, '16 Psyche still known, within 2″ of Horizons');
+  ok(r01.filter(q => q.kind === 'art' && /Flagged by the SPHEREx pipeline/.test(q.title)).length >= 5, 'cosmic-ray hits in the Feb 2026 frame now rejected by the pipeline FLAGS');
+  ok(r01.filter(q => q.kind === 'var').every(q => /Gaia DR3/.test(q.detail)), 'brightness changes are tied to Gaia stars');
+  ok(!r01.some(q => q.kind === 'cand'), 'no candidates left in the Psyche pair: ' + JSON.stringify(r01.filter(q => q.kind === 'cand').map(q => q.title)));
+  const bar = toField(JSON.parse(fs.readFileSync(path.join(here, 'fixtures/spherex-barnard-field.json'), 'utf8')));
+  const star = bar.known.find(k => /Barnard/.test(k.name));
+  ok(star && star.kind === 'star' && star.pmArcsecYr > 10 && Math.hypot(...[0, 1].map(i => star.pos(bar.epochs[2].t)[i] - star.pos(0)[i])) > 1.5, "Barnard's Star is a known high-proper-motion star moving > 1.5 px over the year");
+  for (const [a, b] of [[0, 1], [0, 2], [1, 2]]) {
+    const res = P.analyse(bar, a, b), k = res.find(q => /Barnard/.test(q.title));
+    ok(k && k.kind === 'known' && /matches proper motion/.test(k.detail), `Barnard's Star reported as a known mover in pair ${a},${b} (${k && k.detail})`);
+    ok(!res.some(q => q.kind === 'left' || q.kind === 'cand'), `no "left" or candidate in pair ${a},${b}: ` + JSON.stringify(res.filter(q => q.kind === 'left' || q.kind === 'cand').map(q => q.title)));
+  }
+}
+
 console.log(`${passes} passed, ${fails} failed`);
 process.exit(fails ? 1 : 0);

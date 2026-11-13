@@ -13,14 +13,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const PW_CORE = process.env.PW_CORE || '/private/tmp/claude-501/-Users-shengyan-planet-x/fe009937-83d1-4373-acb2-17af4df64bc0/scratchpad/pw/node_modules/playwright-core/index.mjs';
-const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+import { launch } from '../tests/browser.mjs';
 const SHOTS = process.env.SHOTS || os.tmpdir();
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PAGE = pathToFileURL(path.join(here, '..', 'artifacts', 'ui-demo', 'index.html')).href;
 
-const { chromium } = await import(PW_CORE);
-const browser = await chromium.launch({ executablePath: CHROME, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const browser = await launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' });
 const errors = []; page.on('pageerror', e => errors.push(e.message));
 

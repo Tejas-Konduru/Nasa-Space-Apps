@@ -93,7 +93,8 @@ export async function initData(store) {
   let health = null;
   // a hosted copy (GitHub Pages, claude.ai) can't reach a visitor's localhost, and Chrome would ask them for
   // local-network access, so only look for the local server when the page is served locally or one is configured
-  const local = /^(localhost|127\.0\.0\.1|\[::1\]|)$/.test(location.hostname) || globalThis.PLANETX_SERVER;
+  const host = typeof location !== 'undefined' ? location.hostname : ''; // no `location` under Node (tests)
+  const local = /^(localhost|127\.0\.0\.1|\[::1\]|)$/.test(host) || globalThis.PLANETX_SERVER;
   if (local) try { health = await getJSON('/api/health', HEALTH_TIMEOUT_MS); } catch { /* no server, or sandboxed (claude.ai): stay quiet */ }
   if (!health || !health.ok) return useSim(store, 'no local data server');
   try {
@@ -138,13 +139,21 @@ function b64ToFloat32(b64) {
   return new Float32Array(u8.buffer); // server writes little-endian, as are all browsers' platforms
 }
 
+function b64ToUint32(b64) {
+  const bin = atob(b64), u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return new Uint32Array(u8.buffer);
+}
+const GAIA_EPOCH_MJD = 57388.5; // J2016.0, the epoch of Gaia DR3 positions
+
 /** Convert the server's JSON field into the Field shape (types.js). Exported for tests. */
 export function toField(j) {
   const frames = j.frames.map(b64ToFloat32);
+  const flags = (j.flags || []).map(b64ToUint32); // SPHEREx pipeline FLAGS per frame (bit names in j.flagBits)
   const known = (j.known || []).map(k => {
     const s = [...k.samples].sort((a, b) => a.t - b.t);
     return {
-      name: k.name, vmag: k.vmag, source: k.source || 'JPL',
+      name: k.name, kind: k.kind || 'sb', vmag: k.vmag, source: k.source || 'JPL', note: k.note || null, pmArcsecYr: k.pmArcsecYr ?? null,
       // Exact at frame times; linear between samples less than 3 days apart; otherwise outside the field.
       pos: t => {
         for (const p of s) if (Math.abs(p.t - t) < 1e-6) return [p.x, p.y];
@@ -155,8 +164,20 @@ export function toField(j) {
       },
     };
   });
-  const { frames: _f, known: _k, ...meta } = j;
-  return { ...meta, epochs: j.epochs, frame: i => frames[i], known, simulated: false };
+  // Gaia DR3 stars: pixel position at field time t (days from the first frame), propagating the proper motion
+  // from J2016.0 on the same first-order tangent plane as pipeline/format.js radec().
+  const t0 = j.epochs && j.epochs[0] && Number.isFinite(j.epochs[0].mjd) ? j.epochs[0].mjd : GAIA_EPOCH_MJD;
+  const cosd = Math.cos(j.dec0 * Math.PI / 180);
+  const stars = (j.stars || []).map(s => ({
+    id: s.id, name: s.name || `Gaia DR3 ${s.id}`, g: s.g, rp: s.rp, pm: s.pmra == null || s.pmdec == null ? 0 : Math.hypot(s.pmra, s.pmdec) / 1000,
+    pos: t => {
+      const dt = (t0 + t - GAIA_EPOCH_MJD) / 365.25;
+      const ra = s.ra + (s.pmra || 0) * dt / 3.6e6 / Math.cos(s.dec * Math.PI / 180), dec = s.dec + (s.pmdec || 0) * dt / 3.6e6;
+      return [j.N / 2 - (ra - j.ra0) * 3600 / j.scale * cosd, j.N / 2 - (dec - j.dec0) * 3600 / j.scale];
+    },
+  }));
+  const { frames: _f, flags: _fl, known: _k, stars: _s, ...meta } = j;
+  return { ...meta, epochs: j.epochs, frame: i => frames[i], flags: i => flags[i] || null, flagBits: j.flagBits || null, known, stars, simulated: false };
 }
 
 async function simField(ra, dec) {

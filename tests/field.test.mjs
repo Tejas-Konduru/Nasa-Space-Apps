@@ -3,23 +3,20 @@
 // the field view with the shared store. Screenshots → $SHOTS (default: scratchpad/field). Exits 1 on failure.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const SCR = '/private/tmp/claude-501/-Users-shengyan-planet-x/fe009937-83d1-4373-acb2-17af4df64bc0/scratchpad';
-const { chromium } = await import(process.env.PW_CORE || SCR + '/pw/node_modules/playwright-core/index.mjs');
+import { launch, serve, SCRATCH as SCR } from './browser.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = process.env.SHOTS || SCR + '/field';
 const PORT = +(process.env.PORT || 8102), BASE = `http://127.0.0.1:${PORT}/app/dev/field.html`;
 fs.mkdirSync(OUT, { recursive: true });
 const hasData = fs.existsSync(path.join(ROOT, 'app/js/data/index.js'));
 
-const srv = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { cwd: ROOT, stdio: 'ignore' });
-const cleanup = () => { try { srv.kill(); } catch {} };
+const srv = await serve(PORT, ROOT); // refuses a stale server that serves other files
+const cleanup = () => { try { srv && srv.kill(); } catch {} };
 process.on('exit', cleanup);
-for (let i = 0; i < 50; i++) { try { await fetch(BASE); break; } catch { await new Promise(r => setTimeout(r, 100)); } }
 
-const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const browser = await launch();
 // Hermetic: never talk to a live data server on :8787 (tests/live.test.mjs covers live mode).
 { const nc = browser.newContext.bind(browser); browser.newContext = async (o) => { const c = await nc(o); await c.route(/^http:\/\/(localhost|127\.0\.0\.1):8787\//, r => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '{"ok":false,"note":"blocked by test"}' })); return c; }; }
 
@@ -114,6 +111,17 @@ const noHScroll = p => p.evaluate(() => { const v = document.querySelector('.fv'
   ok(/Max-stack of 5 passes at 0\.95 µm, Pass 1 to Pass 6/.test(await p.locator('[data-ref="flash"]').innerText()), 'track label');
   ok(await p.evaluate(() => [...document.querySelectorAll('[data-ref="epA"] button')].map(b => b.firstChild.textContent).join(',')) === 'Pass 1,Pass 2,Pass 3,Pass 4,Pass 5,Pass 6,Pass 7,Pass 8', 'passes have short names');
   await p.screenshot({ path: OUT + '/desktop-track.png' });
+  // Play: cycles through every pass at the reference wavelength, in time order
+  await p.click('[data-mode="play"]'); ok(await p.getAttribute('[data-mode="play"]', 'aria-pressed') === 'true', 'play pressed');
+  const flash0 = await p.locator('[data-ref="flash"]').innerText();
+  ok(/^Pass 1 · 0 d \(1\/6\)$/.test(flash0), `play starts at the reference pass with a counter (${flash0})`);
+  await p.waitForFunction(t => document.querySelector('[data-ref="flash"]').textContent !== t, flash0, { timeout: 3000 });
+  ok(/^Pass 2 · \+2 min \(2\/6\)$/.test(await p.locator('[data-ref="flash"]').innerText()), 'play advances to the next same-wavelength pass');
+  ok(await p.evaluate(() => window.__field.state.results.length > 0), 'results still computed for the A/B pair while playing');
+  await p.keyboard.press('t'); ok(await p.getAttribute('[data-mode="track"]', 'aria-pressed') === 'true', 'key T leaves play');
+  ok(await p.locator('[data-ref="starsbtn"]').evaluate(e => e.hidden) && await p.locator('[data-ref="badbtn"]').evaluate(e => e.hidden), 'Gaia / bad-pixel toggles hidden on a simulated field');
+  ok(await p.locator('[data-ref="live"]').evaluate(e => e.hidden), 'examples + live request hidden on a simulated field');
+  ok(/[?&]ra=70\.42&dec=19\.18(&|$)/.test(await p.evaluate(() => location.search)), 'address bar carries ?ra=&dec= for the open field (' + (await p.evaluate(() => location.search)) + ')');
   await p.click('[data-act="known"]'); ok(await p.getAttribute('[data-act="known"]', 'aria-pressed') === 'true', 'known toggle');
   await p.click('[data-act="marks"]'); ok(await p.getAttribute('[data-act="marks"]', 'aria-pressed') === 'false', 'flags toggle');
   await p.click('[data-act="marks"]'); await p.click('[data-act="known"]');
@@ -137,6 +145,7 @@ const noHScroll = p => p.evaluate(() => { const v = document.querySelector('.fv'
   ok(!(await p.locator('.fv').evaluate(e => e.hidden)), 'view shows again');
   await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
   ok(await p.evaluate(() => window.__px.get('view')) === 'sky', 'Esc with nothing selected goes back to sky');
+  ok(!/[?&]ra=/.test(await p.evaluate(() => location.search)), 'address bar drops ?ra=&dec= back on the sky');
 
   // re-centring via store.field
   await p.evaluate(() => { window.__px.set('view', 'field'); window.__px.set('field', { ra: 241.5, dec: 41, sizeArcsec: 1968 }); });

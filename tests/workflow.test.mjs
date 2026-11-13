@@ -1,13 +1,11 @@
 // Candidate review panel (workflow) — headless Chrome against app/dev/candidates.html.
 // Run from the repo root:  node tests/workflow.test.mjs
 // Serves the repo on 127.0.0.1:8104 itself (reuses a server already listening there). Screenshots go to the scratchpad.
-import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const SCRATCH = '/private/tmp/claude-501/-Users-shengyan-planet-x/fe009937-83d1-4373-acb2-17af4df64bc0/scratchpad';
-const { chromium } = await import(`${SCRATCH}/pw/node_modules/playwright-core/index.mjs`);
+import { launch, serve, SCRATCH } from './browser.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8104, URL_ = `http://127.0.0.1:${PORT}/app/dev/candidates.html`;
 const SHOTS = path.join(SCRATCH, 'shots', 'workflow');
@@ -18,17 +16,9 @@ function ok(cond, msg) { if (cond) { passes++; console.log('  ok  ' + msg); } el
 const eq = (a, b, msg) => ok(JSON.stringify(a) === JSON.stringify(b), `${msg} (got ${JSON.stringify(a)})`);
 
 // ---------- server ----------
-async function up() { try { return (await fetch(URL_)).ok; } catch { return false; } }
-let server = null;
-if (!(await up())) {
-  server = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { cwd: ROOT, stdio: 'ignore' });
-  for (let i = 0; i < 50 && !(await up()); i++) await new Promise(r => setTimeout(r, 100));
-}
+const server = await serve(PORT, ROOT); // refuses a stale server that serves other files
 
-const browser = await chromium.launch({
-  executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
-});
+const browser = await launch();
 // Hermetic: never talk to a live data server on :8787 (tests/live.test.mjs covers live mode).
 { const nc = browser.newContext.bind(browser); browser.newContext = async (o) => { const c = await nc(o); await c.route(/^http:\/\/(localhost|127\.0\.0\.1):8787\//, r => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '{"ok":false,"note":"blocked by test"}' })); return c; }; }
 

@@ -33,7 +33,7 @@ Nine slides, drawn from `docs/WRITEUP.md`. Every number and claim here comes fro
 
 - **Key message:** From real SPHEREx exposures to a short list for a person to vet.
 - **Supporting points:**
-  - IRSA exposures (`spherex_qr2`, `spherex_qr3`) → pair at matching wavelength → align cutouts on one grid
+  - IRSA exposures (every current SPHEREx release, `spherex_dr1` + `spherex_qr3` today) → pair at matching wavelength → align cutouts on one grid
   - Detect at 5σ with 3σ hysteresis, then reject sources narrower than the PSF
   - Pair appeared and vanished sources into movers → cross-match with JPL Small-Body Identification and Horizons
   - Vet what is left by eye: cutout, compare, field analysis

@@ -1,6 +1,6 @@
 // Mobile / accessibility / performance QA for artifacts/moving-sky/index.html.
 // Usage: node qa/moving-sky-mobile.test.mjs            (from the repo root)
-// Env:   PW=<dir containing node_modules/playwright-core>  OUT=<screenshot dir>
+// Env:   PW_CORE=<path to playwright-core/index.mjs>  CHROME=<chrome executable>  OUT=<screenshot dir>  (see tests/browser.mjs)
 //        QA_BASE=<git ref to compare against>  (default: merge-base with main)
 // Loads an instrumented copy (exposes analyse/render/update on window.__qa) via file://,
 // compares analyse() output between QA_BASE and the working tree, prints perf numbers
@@ -10,10 +10,8 @@ import { execSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-const SCRATCH = '/private/tmp/claude-501/-Users-shengyan-planet-x/fe009937-83d1-4373-acb2-17af4df64bc0/scratchpad';
-const PW = process.env.PW || `${SCRATCH}/pw`;
+import { launch, SCRATCH } from '../tests/browser.mjs';
 const OUT = process.env.OUT || `${SCRATCH}/moving-sky-qa`;
-const { chromium } = await import(path.join(PW, 'node_modules/playwright-core/index.mjs'));
 const ROOT = execSync('git rev-parse --show-toplevel').toString().trim();
 const FILE = 'artifacts/moving-sky/index.html';
 const BASE = process.env.QA_BASE || execSync('git merge-base HEAD main', { cwd: ROOT }).toString().trim();
@@ -34,10 +32,7 @@ function instrument(src, name) {
 const urlCur = instrument(readFileSync(path.join(ROOT, FILE), 'utf8'), 'current');
 const urlBase = instrument(execSync(`git show ${BASE}:${FILE}`, { cwd: ROOT }).toString(), 'base');
 
-const browser = await chromium.launch({
-  executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
-});
+const browser = await launch();
 let failures = 0;
 const check = (ok, msg) => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${msg}`); if (!ok) failures++; };
 

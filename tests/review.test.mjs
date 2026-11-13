@@ -2,28 +2,18 @@
 // Run from the repo root:  node tests/review.test.mjs
 // Serves the worktree on 127.0.0.1:8107 itself (reuses a server already listening there). Hermetic: the local live
 // server (:8787) is blocked, so the app always boots on simulated data.
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const SCRATCH = '/private/tmp/claude-501/-Users-shengyan-planet-x/fe009937-83d1-4373-acb2-17af4df64bc0/scratchpad';
-const { chromium } = await import(`${SCRATCH}/pw/node_modules/playwright-core/index.mjs`);
+import { launch, serve } from './browser.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8107, URL_ = `http://127.0.0.1:${PORT}/app/`;
 
 let failures = 0, passes = 0;
 function ok(cond, msg) { if (cond) { passes++; console.log('  ok  ' + msg); } else { failures++; console.log('  FAIL ' + msg); } }
 
-async function up() { try { return (await fetch(URL_)).ok; } catch { return false; } }
-let server = null;
-if (!(await up())) {
-  server = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { cwd: ROOT, stdio: 'ignore' });
-  for (let i = 0; i < 50 && !(await up()); i++) await new Promise(r => setTimeout(r, 100));
-}
-const browser = await chromium.launch({
-  executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
-});
+const server = await serve(PORT, ROOT); // refuses a stale server that serves other files
+const browser = await launch();
 const benign = t => /Failed to load resource: (the server responded with a status of 404|net::ERR_FAILED)/.test(t);
 async function open({ width = 1280, height = 800 } = {}) {
   const ctx = await browser.newContext({ viewport: { width, height } });

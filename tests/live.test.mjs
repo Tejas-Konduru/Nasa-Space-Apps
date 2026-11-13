@@ -6,7 +6,6 @@
 // the first time (IRSA + JPL); warm ones are instant. Screenshots → $SHOTS (default scratchpad/live-shots).
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 if (process.env.PLANETX_OFFLINE === '1') { console.log('SKIP live test (PLANETX_OFFLINE=1)'); process.exit(0); }
@@ -14,22 +13,17 @@ const SERVER = process.env.PLANETX_SERVER || 'http://localhost:8787';
 try { const h = await (await fetch(SERVER + '/api/health', { signal: AbortSignal.timeout(3000) })).json(); if (!h.ok) throw new Error('not ok'); }
 catch (e) { console.log(`SKIP live test: no data server at ${SERVER} (${e.message})`); process.exit(0); }
 
-const SCR = '/private/tmp/claude-501/-Users-shengyan-planet-x/fe009937-83d1-4373-acb2-17af4df64bc0/scratchpad';
-const { chromium } = await import(process.env.PW_CORE || SCR + '/pw/node_modules/playwright-core/index.mjs');
+import { launch, serve, SCRATCH as SCR } from './browser.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = process.env.SHOTS || SCR + '/live-shots';
 const PORT = +(process.env.PORT || 8106), APP = `http://127.0.0.1:${PORT}/app/`;
 const COLD_MS = +(process.env.LIVE_TIMEOUT_MS || 300000); // a cold field with JPL can take minutes
 fs.mkdirSync(OUT, { recursive: true });
 
-let srv = null;
-try { await fetch(APP, { signal: AbortSignal.timeout(1000) }); } catch {
-  srv = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { cwd: ROOT, stdio: 'ignore' });
-  process.on('exit', () => { try { srv.kill(); } catch {} });
-  for (let i = 0; i < 50; i++) { try { await fetch(APP); break; } catch { await new Promise(r => setTimeout(r, 100)); } }
-}
+const srv = await serve(PORT, ROOT); // refuses a stale server that serves other files
+process.on('exit', () => { try { srv && srv.kill(); } catch {} });
 
-const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const browser = await launch();
 let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
 
 async function open(opts = {}, route) {
@@ -146,6 +140,40 @@ const hookField = ctx => ctx.addInitScript(() => {
   await q.evaluate(() => document.querySelector('#view-field').scrollTo(0, 0));
   await q.screenshot({ path: OUT + '/phone-psyche-full.png', fullPage: false });
   await ph.close();
+  await ctx.close();
+}
+
+// ---------- 2b. Barnard's Star from the Examples list: Gaia high-proper-motion star, Play, overlays ----------
+{
+  const { ctx, p, errs } = await open({}, hookField);
+  await p.evaluate(() => { window.__px.set('field', { ra: 70.42, dec: 19.18, sizeArcsec: 120 }); window.__px.set('view', 'field'); });
+  await waitField(p);
+  await p.selectOption('#view-field [data-ref="lex"]', 'barnard');
+  await waitField(p, "Math.abs(s.field.ra0 - 269.4463) < 1e-3 && s.field.known.some(k => /Barnard/.test(k.name))");
+  const st = await p.evaluate(() => { const s = window.__fieldView.state; return { N: s.field.N, det: s.field.detector, stars: s.field.stars.length, known: s.field.known.map(k => k.name + '/' + k.kind), flagged: s.field.epochs.map(e => e.flagged), results: s.results.map(r => r.kind + ':' + r.title) }; });
+  console.log('  barnard field:', JSON.stringify(st));
+  ok(st.N === 49 && st.det === 1 && st.stars > 100, `Barnard field is live D1, ${st.stars} Gaia stars overlaid`);
+  ok(st.known.includes("Barnard's Star/star"), "Barnard's Star listed as a known star (Gaia DR3 proper motion)");
+  ok(st.results.some(r => r === "known:Barnard's Star"), 'Barnard\'s Star flagged as Known object in the default pair');
+  ok(!st.results.some(r => r.startsWith('left:') || r.startsWith('cand:')), 'nothing "left the cutout", no candidates');
+  ok(st.flagged.every(v => v > 0 && v < 0.5), `pipeline FLAGS carried per frame (${st.flagged.join(', ')})`);
+  ok(!(await p.locator('#view-field [data-ref="exnote"]').evaluate(e => e.hidden)) && /Gaia DR3 knows it/.test(await p.locator('#view-field [data-ref="exnote"]').innerText()), 'example note shown');
+  ok(/[?&]ra=269\.4463&dec=4\.7682&size=300&det=1/.test(await p.evaluate(() => location.search)), 'address bar carries the Barnard field (' + (await p.evaluate(() => location.search)) + ')');
+  ok(!(await p.locator('#view-field [data-ref="starsbtn"]').evaluate(e => e.hidden)) && !(await p.locator('#view-field [data-ref="badbtn"]').evaluate(e => e.hidden)), 'Gaia stars and Bad pixels toggles available');
+  await p.click('#view-field [data-act="stars"]'); await p.click('#view-field [data-act="bad"]'); await p.click('#view-field [data-act="known"]');
+  await p.click('#view-field [data-mode="play"]');
+  const flash0 = await p.locator('#view-field [data-ref="flash"]').innerText();
+  ok(/^Scan 1 · 2025-09-01 \(1\/3\)$/.test(flash0), `play starts at Scan 1 with its date (${flash0})`);
+  await p.waitForFunction(t => document.querySelector('#view-field [data-ref="flash"]').textContent !== t, flash0, { timeout: 3000 });
+  ok(/^Scan 2 · 2026-03-11 \(2\/3\)$/.test(await p.locator('#view-field [data-ref="flash"]').innerText()), 'play advances through the passes in time order');
+  await p.screenshot({ path: OUT + '/desktop-barnard-play.png' });
+  await p.keyboard.press('b');
+  const bi = st.results.findIndex(r => r === "known:Barnard's Star");
+  await p.locator('#view-field .fv-dets button').nth(bi).click();
+  const kv = await p.locator('#view-field [data-ref="kv"]').innerText();
+  ok(/Catalogue\s+Gaia DR3 proper motion, 10\.\d+″\/yr/.test(kv) && /SPHEREx flags/.test(kv), 'vetting shows the Gaia catalogue row and the pixel flags: ' + kv.replace(/\s+/g, ' ').slice(0, 200));
+  await p.screenshot({ path: OUT + '/desktop-barnard.png' });
+  ok(!errs.length, 'no console errors (Barnard) ' + JSON.stringify(errs));
   await ctx.close();
 }
 

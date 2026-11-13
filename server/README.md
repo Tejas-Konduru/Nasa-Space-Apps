@@ -69,7 +69,7 @@ Delete it to force fresh downloads. SIA search results expire after 7 days; ever
 |---|---|
 | `GET /api/health` | `{ok, version, upstream, home, recentUpstream[]}` (last upstream requests with timings) |
 | `GET /api/scans?ra&dec[&det=1..6]` | SPHEREx survey epochs covering the position: `{id, label, date, start, end, nExposures, detectors[{detector, emMin, emMax, count}]}`. With `det`, each epoch also lists that detector's exposures with the **wavelength at the target** (`atTarget[]`). |
-| `GET /api/field?ra&dec[&size=120][&det=1][&lam=µm][&per=2][&t=MJD][&known=0]` | A `Field` as JSON: metadata, `epochs[]`, `frames[]` (base64 Float32, little-endian, N×N row-major), `known[]` (JPL objects with pixel `samples` per frame). `size` 20–600″. `t` anchors the selection on the exposure nearest that time (e.g. the night an asteroid passed). |
+| `GET /api/field?ra&dec[&size=120][&det=1][&lam=µm][&per=2][&t=MJD][&known=0][&gaia=0]` | A `Field` as JSON: metadata, `epochs[]` (with `flagged`, the fraction of flagged pixels), `frames[]` (base64 Float32, little-endian, N×N row-major), `flags[]` (the SPHEREx L2 FLAGS plane per frame, base64 Uint32, bit names in `flagBits`), `known[]` (JPL objects and Gaia stars moving > 1″/yr, `kind: 'sb' \| 'star'`, pixel `samples` per frame), `stars[]` (Gaia DR3 sources with G < 19 over the cutout). `size` 20–600″. `t` anchors the selection on the exposure nearest that time (e.g. the night an asteroid passed). `known=0` skips JPL, `gaia=0` skips Gaia. |
 | `GET /api/progress` | Cold field builds in progress: `{builds:[{ra, dec, size, N, known, stage (sia, headers, cutouts, horizons), label, done, total, jpl:{done,total}, elapsedMs}]}`. Warm requests never show up. |
 | `GET /api/known?ra&dec&t[&r=120]` | Known small bodies within ±`r`″ at time `t` (MJD or ISO date): JPL sb_ident first pass, geocentric observer (raw, not Horizons-refined). |
 | `GET /api/candidates[?ra&dec&size]` | Live "candidates" for the app's panel: the known objects JPL predicts in the field (status `Matched`). Built in the background; answers `{pending:true}` until ready. |
@@ -94,9 +94,11 @@ aligned to ≲ 0.5 px between epochs and the brightest star within 2″ of its G
 ## How a field is built (what's real)
 
 1. **Find exposures** — IRSA Simple Image Access v2, `https://irsa.ipac.caltech.edu/SIA?COLLECTION=…&POS=CIRCLE ra dec r`.
-   Collections checked against IRSA TAP (`ivoa.obscore`) in Oct 2026: `spherex_qr2` (≈1.1 M exposures) and
-   `spherex_qr3` (newer quick release, still growing). Both are queried (`PLANETX_COLLECTIONS` to change);
-   `*_cal` and `*_deep` collections are skipped. Only `calib_level=2` science images are used.
+   The collections are discovered from IRSA TAP (`ivoa.obscore`, every `spherex_*` collection, cached a day) because
+   IRSA renames them as releases land: Oct 2026 had `spherex_qr2` + `spherex_qr3`; in Nov 2026 `spherex_dr1`
+   (Apr 2025–May 2026, ≈0.95 M exposures) replaced qr2 and `spherex_qr3` runs May–Oct 2026. `*_cal`, `*_deep` and
+   `*_cube` collections are skipped. `PLANETX_COLLECTIONS=a,b` pins the list; if TAP is unreachable the server falls
+   back to `spherex_dr1,spherex_qr3`. Only `calib_level=2` science images are used.
 2. **Group into survey epochs** — exposures sorted by time; a gap > 30 days starts a new epoch. SPHEREx maps the
    sky every ~6 months; each epoch covers a point over ~2 weeks, ~17 exposures per detector.
 3. **Wavelength at the target** — SPHEREx uses linear variable filters: the wavelength changes across each
@@ -137,6 +139,13 @@ aligned to ≲ 0.5 px between epochs and the brightest star within 2″ of its G
 - **Known-object search uses sb_ident's first pass** (objects with V ≤ 22; the precise second pass took ~3 min per
   query). Objects are kept if their nominal position lies within the field grown by their error (≤ 2′), then
   Horizons decides; if Horizons can't resolve a name we keep the first-pass position (`known[].source` says which).
+- **Gaia stars** come from the ESA Gaia archive (DR3, G < 19, one TAP cone search per field, cached 30 days), with
+  positions propagated from J2016.0 by proper motion only (no parallax: < 1″ for anything but the nearest stars).
+  Stars moving faster than 1″/yr are listed in `known[]` so the app names them (Barnard's Star has its common name;
+  everything else is `Gaia DR3 <id>`). Objects too faint for Gaia (the Epsilon Indi B brown dwarfs, WISE 0855) are not covered.
+- **FLAGS are carried, not applied:** the pipeline flags are OR'd over the source pixels each output pixel touched and
+  passed to the client, which treats hard bits (TRANSIENT, OUTLIER, HOT, …, plus our MASKED and OFF_IMAGE) as artifacts and
+  reports soft bits (GHOST, PERSIST, HALO, …). Pixel values are not altered.
   Horizons positions are **geocentric**: SPHEREx is ~7000 km from Earth's centre, a parallax of ≲ 3″ for main-belt
   objects but more for near-Earth objects. Between frame times the client interpolates
   linearly only for samples < 3 days apart; otherwise `pos(t)` is off-field.

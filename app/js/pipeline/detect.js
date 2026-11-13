@@ -109,17 +109,33 @@ export function analyse(field, ia, ib) {
 
 function analyseUncached(field, ia, ib) {
   // Hysteresis: a source must be >5σ to count as detected, but only needs a >3σ counterpart to count as "still there".
-  const fa = field.frame(ia), fb = field.frame(ib), SCALE = field.scale, KNOWN = field.known || [];
+  const fa = field.frame(ia), fb = field.frame(ib), SCALE = field.scale, KNOWN = field.known || [], STARS = field.stars || [], N = field.N || sideOf(fa);
   const A = detect(fa, 5), B = detect(fb, 5), Alo = detect(fa, 3), Blo = detect(fb, 3);
   const ta = field.epochs[ia].t, tb = field.epochs[ib].t, dt = Math.abs(tb - ta), sig = A.length ? A[0].sig : 0.1;
   const res = [], appeared = [], vanished = [];
   const FIRM = 7 * sig;
+  // SPHEREx pipeline FLAGS (live fields only): a source on a hard-flagged pixel is an artifact whatever its shape;
+  // soft flags (ghost, persistence, halo) are appended to the detail so a reviewer sees the contamination.
+  const FB = typeof field.flags === 'function' && field.flagBits && field.flagBits.names ? field.flagBits : null;
+  const bit = (v, n) => FB.names[n] != null && ((v >>> FB.names[n]) & 1) === 1;
+  const flagsAt = (i, p) => { if (!FB) return null; const fl = field.flags(i); if (!fl) return null; const x = Math.round(p.x), y = Math.round(p.y); return x < 0 || y < 0 || x >= N || y >= N ? null : fl[y * N + x]; };
+  const hardFlags = (i, p) => { const v = flagsAt(i, p); return v == null ? [] : FB.hard.filter(n => bit(v, n)); };
+  const softTxt = (i, p) => { const v = flagsAt(i, p); const s = v == null ? [] : FB.soft.filter(n => bit(v, n)); return s.length ? ` · SPHEREx pipeline flags: ${s.join(', ')}` : ''; };
+  // Gaia DR3 stars (live fields only): a change at a catalogued star is variability, not motion.
+  const starAt = (t, p) => { let best = null, bd = 1.5; for (const s of STARS) { const [x, y] = s.pos(t); const d = Math.hypot(x - p.x, y - p.y); if (d < bd) { bd = d; best = s; } } return best; };
+  const starTxt = s => `${s.name} (G ${s.g.toFixed(1)})`;
+  const knownAt = (t, p) => { for (const k of KNOWN) { const q = k.pos(t); if (!q) continue; const [x, y] = q; if (Math.hypot(x - p.x, y - p.y) < 3) return k; } return null; };
   for (const b of B) { const [a, d] = nearest(Alo.filter(q => q.peak > 0.35 * b.peak), b);
     if (a && d < 2.2) { const ratio = b.peak / a.peak;
-      if ((ratio > 1.8 || ratio < 0.55) && Math.min(a.peak, b.peak) > 12 * sig) res.push({ kind: 'var', title: 'Brightness change, fixed position', x: b.x, y: b.y, from: a, to: b, detail: `×${ratio.toFixed(2)} in peak, no motion` });
+      if ((ratio > 1.8 || ratio < 0.55) && Math.min(a.peak, b.peak) > 12 * sig) {
+        if (KNOWN.length && knownAt(tb, b)) continue;                                     // a known mover's own pixels: reported as 'known' below
+        const hf = [...new Set([...hardFlags(ib, b), ...hardFlags(ia, a)])];              // saturated core or bad pixel: the ratio means nothing
+        if (hf.length) { res.push({ kind: 'art', title: 'Flagged by the SPHEREx pipeline', x: b.x, y: b.y, from: a, to: b, detail: `Brightness change on a pixel the L2 pipeline marks bad (${hf.join(', ')}): not trustworthy` }); continue; }
+        const s = STARS.length ? starAt(tb, b) : null;
+        res.push({ kind: 'var', title: 'Brightness change, fixed position', x: b.x, y: b.y, from: a, to: b, star: s, detail: `×${ratio.toFixed(2)} in peak, no motion` + (s ? ` · ${starTxt(s)}` : '') + softTxt(ib, b) }); }
     } else if (b.peak > FIRM) appeared.push(b); }
   for (const a of A) { if (a.peak <= FIRM) continue; const [b, d] = nearest(Blo.filter(q => q.peak > 0.35 * a.peak), a); if (!(b && d < 2.2)) vanished.push(a); }
-  const knownAt = (t, p) => { for (const k of KNOWN) { const q = k.pos(t); if (!q) continue; const [x, y] = q; if (Math.hypot(x - p.x, y - p.y) < 3) return k; } return null; };
+  const inside = q => q && q[0] >= 0 && q[1] >= 0 && q[0] < N && q[1] < N;
   // Live ephemerides name their source; then say how close the prediction was (simulated strings stay Moving Sky's).
   const offTxt = (k, t, p) => { if (!k.source) return ''; const [x, y] = k.pos(t); return ` · ${(Math.hypot(x - p.x, y - p.y) * SCALE).toFixed(1)}″ from ${k.source}`; };
   // Artifact test, PSF-aware: too sharp for this field's PSF (spike), or a bright blob that fails a PSF fit
@@ -135,22 +151,43 @@ function analyseUncached(field, ia, ib) {
   const ART_TXT = { shape: ['Not PSF-shaped', 'Streak or blob that fails a PSF fit: cosmic ray or bad pixels'], cluster: ['Next to an artifact', 'Within a few pixels of a cosmic-ray / bad-pixel hit in the same frame'],
     masked: ['Counterpart covered by an artifact', 'The same spot in the other frame is hit by a cosmic ray or bad pixels, so this change is not trustworthy'] };
   const usedV = new Set();
-  const partner = b => { let best = null, bd = 1e9; for (const v of vanished) { if (usedV.has(v)) continue; const r = b.peak / v.peak; if (r < 0.5 || r > 2) continue; const d = dist(v, b); if (d < bd) { bd = d; best = v; } } return [best, bd]; };
+  // a vanished source sitting on a Gaia star is a star that faded, never the origin of a mover
+  const partner = b => { let best = null, bd = 1e9; for (const v of vanished) { if (usedV.has(v) || (STARS.length && starAt(ta, v))) continue; const r = b.peak / v.peak; if (r < 0.5 || r > 2) continue; const d = dist(v, b); if (d < bd) { bd = d; best = v; } } return [best, bd]; };
   for (const b of appeared) {
-    const k = knownAt(tb, b), why = artWhy(hardB, hardA, b);  // an ephemeris match wins over the artifact test
+    const k = knownAt(tb, b), hf = k ? [] : hardFlags(ib, b);  // an ephemeris match wins over every artifact test
+    if (hf.length) { res.push({ kind: 'art', title: 'Flagged by the SPHEREx pipeline', x: b.x, y: b.y, to: b, detail: `Pixel flags: ${hf.join(', ')}. The L2 pipeline marks this pixel as bad in this frame` }); continue; }
+    const why = artWhy(hardB, hardA, b);
     if (!k && why === 'spike') { res.push({ kind: 'art', title: 'Single-pixel spike', x: b.x, y: b.y, to: b, detail: 'Not PSF-shaped: cosmic ray or hot pixel' }); continue; }
     if (!k && why) { res.push({ kind: 'art', title: ART_TXT[why][0], x: b.x, y: b.y, to: b, detail: ART_TXT[why][1] }); continue; }
+    const s = !k && STARS.length ? starAt(tb, b) : null;
+    if (s) { res.push({ kind: 'var', title: 'Brightened star', x: b.x, y: b.y, to: b, star: s, detail: `Appeared at ${starTxt(s)}, below detection in the reference: a brightening, not a mover` + softTxt(ib, b) }); continue; }
     const [v, dv] = partner(b);
     const rate = v ? dv * SCALE / dt : null;
     if (k) { if (v) usedV.add(v); res.push({ kind: 'known', title: k.name, x: b.x, y: b.y, from: v, to: b, obj: k, detail: (v ? `Moved ${(dv * SCALE).toFixed(0)}″ in ${fmtDt(dt)} — matches ephemeris` : 'Matches ephemeris') + offTxt(k, tb, b) }); continue; }
-    if (v) { usedV.add(v); res.push({ kind: 'cand', title: 'Uncatalogued mover', x: b.x, y: b.y, from: v, to: b, detail: `${(dv * SCALE).toFixed(0)}″ in ${fmtDt(dt)} = ${fmtRate(rate, dt)}. No ephemeris match.` }); }
-    else res.push({ kind: 'cand', title: 'New source, no counterpart', x: b.x, y: b.y, to: b, detail: 'Appeared with nothing vanishing nearby' });
+    if (v) { usedV.add(v); res.push({ kind: 'cand', title: 'Uncatalogued mover', x: b.x, y: b.y, from: v, to: b, detail: `${(dv * SCALE).toFixed(0)}″ in ${fmtDt(dt)} = ${fmtRate(rate, dt)}. No ephemeris match.` + softTxt(ib, b) }); }
+    else res.push({ kind: 'cand', title: 'New source, no counterpart', x: b.x, y: b.y, to: b, detail: 'Appeared with nothing vanishing nearby' + softTxt(ib, b) });
   }
   for (const v of vanished) { if (usedV.has(v)) continue;
-    const k = knownAt(ta, v), why = artWhy(hardA, hardB, v);
+    const k = knownAt(ta, v), hf = k ? [] : hardFlags(ia, v);
+    if (k && inside(k.pos(tb))) continue;                                                 // still in the field: it moved, and is reported as 'known' below
+    if (hf.length) { res.push({ kind: 'art', title: 'Flagged by the SPHEREx pipeline in reference', x: v.x, y: v.y, from: v, detail: `Pixel flags: ${hf.join(', ')}. The L2 pipeline marks this pixel as bad in the reference frame` }); continue; }
+    const why = artWhy(hardA, hardB, v);
     if (!k && why === 'spike') { res.push({ kind: 'art', title: 'Single-pixel spike in reference', x: v.x, y: v.y, from: v, detail: 'Not PSF-shaped: cosmic ray or hot pixel' }); continue; }
     if (!k && why) { res.push({ kind: 'art', title: ART_TXT[why][0] + (why === 'masked' ? '' : ' in reference'), x: v.x, y: v.y, from: v, detail: ART_TXT[why][1] }); continue; }
+    const s = !k && STARS.length ? starAt(ta, v) : null;
+    if (s) { res.push({ kind: 'var', title: 'Faded star', x: v.x, y: v.y, from: v, star: s, detail: `${starTxt(s)} dropped below detection in the comparison frame: fading, not motion` }); continue; }
     res.push({ kind: 'left', title: k ? `${k.name} — left the cutout` : 'Source vanished', x: v.x, y: v.y, from: v, detail: k ? 'Ephemeris puts it outside this field now' : 'Faded or moved out of field' }); }
+  // Known movers whose shift is below the pairing threshold (a high-proper-motion star at ~1 px/yr) never appear or
+  // vanish, so they would go unreported; name them when a source sits at the predicted position in both frames.
+  for (const k of KNOWN) {
+    if (res.some(r => r.kind === 'known' && r.obj === k)) continue;
+    const pa = k.pos(ta), pb = k.pos(tb); if (!inside(pa) || !inside(pb)) continue;
+    const shift = Math.hypot(pb[0] - pa[0], pb[1] - pa[1]); if (shift < 0.5) continue; // not moving at this resolution
+    const what = k.kind === 'star' ? 'proper motion' : 'ephemeris';
+    const [sa, da] = nearest(Alo, { x: pa[0], y: pa[1] }), [sb, db] = nearest(Blo, { x: pb[0], y: pb[1] });
+    if (sa && sb && da <= 2 && db <= 2) res.push({ kind: 'known', title: k.name, x: sb.x, y: sb.y, from: sa, to: sb, obj: k, detail: `Moved ${(dist(sa, sb) * SCALE).toFixed(0)}″ in ${fmtDt(dt)} — matches ${what}` + offTxt(k, tb, sb) });
+    else res.push({ kind: 'known', title: k.name, x: pb[0], y: pb[1], obj: k, predicted: true, detail: `Predicted here from the ${what} (${(shift * SCALE).toFixed(0)}″ in ${fmtDt(dt)}); no clean centroid within 2 px — saturated, flagged or too faint` });
+  }
   res.sort((p, q) => KIND_ORDER[p.kind] - KIND_ORDER[q.kind]);
   return res;
 }

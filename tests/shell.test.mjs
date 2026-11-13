@@ -1,13 +1,11 @@
 // Shell + Sky + Compare — headless Chrome against app/index.html.
 // Run from the repo root:  node tests/shell.test.mjs
 // Serves the repo on 127.0.0.1:8101 itself (reuses a server already listening there). Screenshots go to the scratchpad.
-import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const SCRATCH = '/private/tmp/claude-501/-Users-shengyan-planet-x/fe009937-83d1-4373-acb2-17af4df64bc0/scratchpad';
-const { chromium } = await import(`${SCRATCH}/pw/node_modules/playwright-core/index.mjs`);
+import { launch, serve, SCRATCH } from './browser.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8101, URL_ = `http://127.0.0.1:${PORT}/app/`;
 const SHOTS = path.join(SCRATCH, 'shots', 'shell');
@@ -17,16 +15,8 @@ let failures = 0, passes = 0;
 function ok(cond, msg) { if (cond) { passes++; console.log('  ok  ' + msg); } else { failures++; console.log('  FAIL ' + msg); } }
 
 // ---------- server ----------
-async function up() { try { return (await fetch(URL_)).ok; } catch { return false; } }
-let server = null;
-if (!(await up())) {
-  server = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { cwd: ROOT, stdio: 'ignore' });
-  for (let i = 0; i < 50 && !(await up()); i++) await new Promise(r => setTimeout(r, 100));
-}
-const browser = await chromium.launch({
-  executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
-});
+const server = await serve(PORT, ROOT); // refuses a stale server that serves other files
+const browser = await launch();
 
 // Missing sibling modules (another agent's, not merged yet) 404 and fall back by design; anything else is an error.
 // The :8787 live server is blocked (see open()), so its aborted request (net::ERR_FAILED) is expected too.
@@ -65,6 +55,11 @@ console.log('pure helpers (app/js/sky/coords.js)');
   ok(g('16h06m, -41') === g('16h06m −41') && g('16h06m +41') === JSON.stringify({ kind: 'pos', raH: 16.1, decD: 41 }), 'go-to signs and separators');
   ok(C.parseGoto('25h, +10') === null && C.parseGoto('10h, +95') === null && C.parseGoto('400, 10') === null, 'go-to rejects RA > 24h and |Dec| > 90');
   ok(g('candidate 3') === g('c03') && C.parseGoto('candidate 3').n === 3, 'go-to "candidate 3"');
+  const near = (a, b) => a && Math.abs(a[0] - b[0]) < 1e-4 && Math.abs(a[1] - b[1]) < 1e-4;
+  ok(near(C.parseCentre('70.2635, 19.0558'), [70.2635, 19.0558]) && near(C.parseCentre('133.76 7.24'), [133.76, 7.24]), 'parseCentre: bare numbers are degrees');
+  ok(near(C.parseCentre('08h55m10.831s -07d14m42.53s'), [133.79513, -7.24515]) && near(C.parseCentre('08:55:10.83 -07:14:42.5'), [133.79512, -7.24514]) && near(C.parseCentre('8 55 10.83 -7 14 42.5'), [133.79512, -7.24514]), 'parseCentre: sexagesimal with seconds (WISE 0855 as the brief writes it)');
+  ok(near(C.parseCentre('16h06m, −41'), [241.5, -41]) && near(C.parseCentre('17h57m48.5s +04d41m36.2s'), [269.45208, 4.69339]), 'parseCentre: Unicode minus, h m s / d m s');
+  ok(C.parseCentre('400, 10') === null && C.parseCentre('10 95') === null && C.parseCentre('junk') === null && C.parseCentre('') === null, 'parseCentre rejects out-of-range and junk');
   for (const [r, d] of [[0, 0], [6, 30], [12, -60], [18.5, 85], [23.9, -1]]) {
     const { yaw, pitch } = C.yawPitchFor(r, d), back = C.raDecOf(C.dirFor(yaw, pitch));
     ok(Math.abs(back.raH - r) < 1e-9 && Math.abs(back.decD - d) < 1e-9, `yaw = ra − π/2 round-trips RA ${r}h Dec ${d}°`);
@@ -270,6 +265,31 @@ console.log('landscape phone 844×390');
   ok(cw && side && cw.x + cw.width <= side.x + 1 && cw.y + cw.height <= 390 && cw.width >= 180, `Compare image and controls side by side (image ${cw && Math.round(cw.width)}px)`);
   await page.screenshot({ path: path.join(SHOTS, 'landscape-compare.png') });
   ok(errors.length === 0, `no console errors (${errors.join(' | ')})`);
+  await ctx.close();
+}
+
+// =====================================================================
+console.log('deep links: /app/?ra=&dec=[&size=&det=&t=]');
+{
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await ctx.route(/(localhost|127\.0\.0\.1):8787/, r => r.abort());
+  const page = await ctx.newPage(); const errors = [];
+  page.on('pageerror', e => errors.push(String(e)));
+  await page.goto(URL_ + '?ra=241.5&dec=41&size=300&det=2&t=2026-02-16');
+  await page.waitForFunction(() => document.documentElement.dataset.ready === 'true', null, { timeout: 15000 });
+  await page.waitForFunction(() => window.__px.get('view') === 'field' && document.querySelector('#view-field [data-ref="pos"]')?.textContent.startsWith('RA 16h 06m'), null, { timeout: 60000 }); // simulating the field is CPU work; generous under software GL
+  const f = await page.evaluate(() => window.__px.get('field'));
+  ok(f && f.ra === 241.5 && f.dec === 41 && f.sizeArcsec === 300 && f.det === 2 && Math.abs(f.t - 61087) < 1e-6, 'deep link opens the Field on the requested patch with size, detector and anchor date: ' + JSON.stringify(f));
+  ok(/[?&]ra=241\.5&dec=41/.test(await page.evaluate(() => location.search)), 'address bar keeps the field coordinates');
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => window.__px.get('view') === 'sky');
+  ok(!/ra=/.test(await page.evaluate(() => location.search)), 'back on the sky the address bar is clean again');
+  const sex = await ctx.newPage();
+  await sex.goto(URL_ + '?ra=08h55m10.831s&dec=-07d14m42.53s');
+  await sex.waitForFunction(() => document.documentElement.dataset.ready === 'true' && window.__px.get('view') === 'field', null, { timeout: 60000 });
+  const g = await sex.evaluate(() => window.__px.get('field'));
+  ok(g && Math.abs(g.ra - 133.79513) < 1e-4 && Math.abs(g.dec + 7.24515) < 1e-4, 'deep link accepts sexagesimal coordinates (WISE 0855 as the brief writes it)');
+  ok(errors.length === 0, 'no page errors on deep links: ' + errors.join(' | '));
   await ctx.close();
 }
 
