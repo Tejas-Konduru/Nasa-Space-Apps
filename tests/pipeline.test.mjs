@@ -179,6 +179,18 @@ ok(Math.abs(P.sigmaOfSpike(P.spikeOf(0.68)) - 0.68) < 1e-6 && P.spikeLimit(0.68)
     // 5σ detection toggled off, used to be reported as variable / faded
     ok(!res.some(q => q.kind === 'var'), `no false variables in pair ${a},${b}: ` + JSON.stringify(res.filter(q => q.kind === 'var').map(q => q.title + ' ' + q.detail)));
   }
+  // RW Aurigae (fixture from /api/field?ra=76.9565&dec=30.4014&size=300&det=1): the one genuine variable among the
+  // brief's targets, a T Tauri star with deep dimming events. RW Aur A (Gaia DR3 156430822114424576, G 12.2) sits at
+  // the field centre and its 5×5 flux goes 85 → 143 → 206 over the three passes (Sep 2025, Mar 2026, Sep 2026). It
+  // must survive the aperture test that removed the false flags above, and be the only variable in the field.
+  const rw = toField(JSON.parse(fs.readFileSync(path.join(here, 'fixtures/spherex-rwaur-field.json'), 'utf8')));
+  for (const [a, b, lo] of [[0, 1, 1.6], [0, 2, 2.3]]) {
+    const res = P.analyse(rw, a, b), vars = res.filter(q => q.kind === 'var'), v = vars.find(q => Math.hypot(q.x - rw.N / 2, q.y - rw.N / 2) < 2);
+    const ratio = v ? +(/×([\d.]+) in flux/.exec(v.detail) || [])[1] : NaN;
+    ok(v && /156430822114424576/.test(v.detail) && ratio >= lo, `RW Aur A is variable in pair ${a},${b}, judged on flux (${v ? v.detail : 'not flagged'})`);
+    ok(vars.length === 1, `RW Aur A is the only variable in pair ${a},${b}: ` + JSON.stringify(vars.map(q => q.detail)));
+    ok(!res.some(q => q.kind === 'cand'), `no candidates in the RW Aur pair ${a},${b}`);
+  }
 }
 
 // 13. ISS-01: on an under-sampled PSF the peak depends on where a star falls in its pixel, so variability is judged on
