@@ -58,7 +58,6 @@ async function run(name, mod, fallback, ...args) {
 const pData = load('data', './data/index.js', 'initData', initDataStub);
 const pCand = load('candidates', './candidates/index.js', 'mountCandidates', mountCandidatesStub);
 const pField = load('field', './field/index.js', 'mountField', mountFieldStub);
-const pAladin = load('aladin', './aladin/index.js', 'mountAladin', async () => {}); // aladin: optional, never blocks boot
 
 // Shell first so the sky paints before data arrives (a live-server probe can take up to 1.5 s).
 const hud = mountHud(store);
@@ -69,7 +68,6 @@ mountCompare($('view-compare'), store);
 const [data, cand, field] = await Promise.all([pData, pCand, pField]);
 await run('candidates', cand, mountCandidatesStub, $('panel'), store);
 await run('field', field, mountFieldStub, $('view-field'), store);
-await run('aladin', await pAladin, async () => {}, $('aladin-panel'), store); // aladin
 await run('data', data, initDataStub, store);
 if (!(store.get('candidates') || []).length && !(store.get('scans') || []).length && data.real) {
   console.warn('[planet-x] data module produced no scans or candidates; using placeholder data');
