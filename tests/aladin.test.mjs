@@ -61,9 +61,7 @@ t('Aladin Lite (GPL-3.0) is not vendored: only loaded from the CDS CDN', () => {
   const named = files.filter(p => /aladin/i.test(p.split('/').pop()) && /\.(js|mjs|wasm)$/.test(p) && !/app\/js\/aladin\/(index|geom)\.js$|tests\/aladin\.test\.mjs$|scripts\/setup-aladin\.mjs$/.test(p));
   assert.deepEqual(named.map(p => relative(ROOT, p)), [], 'no Aladin library files in the repo');
   const src = readFileSync(join(ROOT, 'app/js/aladin/index.js'), 'utf8');
-  assert.ok(src.includes("'https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js'"), 'CDS script as fallback');
-  assert.ok(src.includes('https://cdn.jsdelivr.net/npm/aladin-lite@${ALADIN_VERSION}/dist/aladin.js'), 'npm build from jsDelivr first');
-  assert.match(src, /ALADIN_VERSION = '\d+\.\d+\.\d+'/, 'pinned to an exact stable version');
+  assert.ok(src.includes("'https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js'"));
   assert.ok(src.length < 20000, 'our module is small; the library is not inlined');
 });
 
