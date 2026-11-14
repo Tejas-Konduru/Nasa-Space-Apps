@@ -74,6 +74,8 @@ console.log('desktop 1440×900, dark');
   console.log('  modules:', JSON.stringify(modules), '| 404s:', notFound.filter(u => u.startsWith('http')).map(u => u.replace(URL_, '')).join(', ') || 'none');
   ok(errors.length === 0, `boot: no console errors (${errors.join(' | ')})`);
   ok(await page.evaluate(() => window.__sky.backdrop) === 'image', 'real NASA sky map is the backdrop');
+  { const types = await page.evaluate(() => window.__sky.sceneTypes());
+    ok(!types.Points && types.Mesh === 1 && types.Group === 3, `no invented star layers: the scene holds the backdrop, grid, markers and tracks only (${JSON.stringify(types)})`); }
   ok((await page.textContent('#source-text')) === 'Simulated data', 'badge says "Simulated data"');
   await page.evaluate(() => window.__px.set('source', { mode: 'live', live: true, note: 'SPHEREx via IRSA' }));
   ok((await page.textContent('#source-text')) === 'Live · SPHEREx', 'badge says "Live · SPHEREx" for a live source');
@@ -111,6 +113,13 @@ console.log('desktop 1440×900, dark');
     await page.fill('#goto-in', q); await page.press('#goto-in', 'Enter'); await settle(page);
     const ctr = await page.evaluate(() => window.__sky.centre());
     ok(sepDeg(ctr.raH, ctr.decD, ra, dec) < 0.5, `go to "${q}" → RA ${ctr.raH.toFixed(3)}h Dec ${ctr.decD.toFixed(2)}°`);
+  }
+  // the celestial poles are reachable (ISS-18): the camera is Euler-oriented, so Dec ±90° is a valid target
+  for (const [q, dec] of [['0h, +90', 90], ['12h, −90', -90]]) {
+    await page.fill('#goto-in', q); await page.press('#goto-in', 'Enter'); await settle(page);
+    const ctr = await page.evaluate(() => window.__sky.centre());
+    const read = await page.evaluate(() => document.getElementById('dec').textContent);
+    ok(Math.abs(ctr.decD - dec) < 0.2, `go to "${q}" reaches the pole (Dec ${ctr.decD.toFixed(2)}°, readout ${read})`);
   }
   // flyto event (degrees)
   await page.evaluate(() => window.__px.emit('flyto', { ra: 83.82, dec: -5.39, fov: 30 })); await settle(page);

@@ -5,10 +5,10 @@
 /* global THREE */
 import { toXYZ, yawPitchFor, raDecOf, unwrap } from './coords.js';
 import { shortId, designation, matches, posAt, observed, hasPos } from '../candidates/format.js';
-import { createBackdrop, makeRng, isLowEnd } from './backdrop.js';
+import { createBackdrop, isLowEnd } from './backdrop.js';
 import { VIEW } from './config.js';
 
-const R_MARK = 500, R_GRID = 700, R_STARS = 600;
+const R_MARK = 500, R_GRID = 700;
 const v3 = (raH, decD, r) => new THREE.Vector3(...toXYZ(raH, decD, r));
 
 /**
@@ -51,35 +51,9 @@ export function mountSky(el, store, opts = {}) {
   const backdrop = createBackdrop(renderer, { low, onChange: () => kick() });
   scene.add(backdrop.mesh);
 
-  // --- resolved stars: colour by temperature ---
-  const starVert = `attribute float aSize; varying float vA; varying vec3 vC; uniform float uPR;
-    void main(){ vA = clamp(aSize/4.0, .35, 1.0); vC = color; vec4 mv = modelViewMatrix * vec4(position,1.0);
-    gl_PointSize = aSize * uPR; gl_Position = projectionMatrix * mv; }`;
-  const starFrag = `varying float vA; varying vec3 vC; void main(){ float d = length(gl_PointCoord - .5);
-    float core = smoothstep(.5, .12, d); gl_FragColor = vec4(mix(vC, vec3(1.0), core*.6), core * vA); }`;
-  const haloFrag = `varying float vA; varying vec3 vC; void main(){ float d = length(gl_PointCoord - .5);
-    float a = pow(max(0., 1. - d*2.), 2.2) * .32; gl_FragColor = vec4(vC, a); }`;
-  function pointsLayer(rnd, n, sizeFn, frag) {
-    const pos = new Float32Array(n * 3), size = new Float32Array(n), col = new Float32Array(n * 3);
-    const starColor = () => { const k = rnd(); // O/B blue, A/F white, G yellow, K/M orange
-      return k < 0.12 ? [0.68, 0.78, 1.0] : k < 0.5 ? [0.95, 0.96, 1.0] : k < 0.75 ? [1.0, 0.93, 0.78] : [1.0, 0.78, 0.55]; };
-    for (let i = 0; i < n; i++) {
-      let u = rnd() * 2 - 1; if (rnd() < 0.5) u = Math.max(-1, Math.min(1, u * 0.6));
-      const th = rnd() * Math.PI * 2, r = Math.sqrt(1 - u * u);
-      pos[i * 3] = r * Math.cos(th) * R_STARS; pos[i * 3 + 1] = u * R_STARS; pos[i * 3 + 2] = r * Math.sin(th) * R_STARS;
-      size[i] = sizeFn(); col.set(starColor(), i * 3);
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, vertexColors: true, blending: THREE.AdditiveBlending,
-      uniforms: { uPR: { value: renderer.getPixelRatio() } }, vertexShader: starVert, fragmentShader: frag });
-    return new THREE.Points(geo, mat);
-  }
-  { const r1 = makeRng(7); scene.add(pointsLayer(r1, low ? 12000 : 26000, () => Math.pow(r1(), 4) * 2.6 + 0.7, starFrag)); }
-  { const r2 = makeRng(101); scene.add(pointsLayer(r2, 280, () => 18 + r2() * 24, haloFrag)); }
-  { const r3 = makeRng(101); scene.add(pointsLayer(r3, 280, () => 3.2 + r3() * 1.8, starFrag)); }
+  // Every star on screen comes from the backdrop image (NASA SVS Deep Star Maps, built from Gaia DR2). The UI demo
+  // used to draw three random point layers on top of it (26,000 faint dots, 280 haloed bright stars); 92% of those
+  // bright "stars" matched nothing real (issues.md ISS-02), so they are gone: nothing invented is drawn on the sky.
 
   // --- grid (UI element: white only) ---
   const grid = new THREE.Group();
@@ -162,7 +136,9 @@ export function mountSky(el, store, opts = {}) {
   }
 
   // --- camera control ---
-  const clampPitch = p => Math.max(-1.5, Math.min(1.5, p));
+  // The camera is oriented by Euler angles (rotateY, rotateX), not lookAt, so pitch may reach the poles exactly: a
+  // go-to "0h, +90" centres on Dec +90°, not +85.9° (issues.md ISS-18). Drag speed near the pole is guarded below.
+  const clampPitch = p => Math.max(-Math.PI / 2, Math.min(Math.PI / 2, p));
   const zoom = f => { tFov = Math.min(VIEW.fovMax, Math.max(VIEW.fovMin, tFov * f)); kick(); };
   function flyTo(raH, decD, fov) {
     const t = yawPitchFor(raH, decD);
@@ -306,6 +282,8 @@ export function mountSky(el, store, opts = {}) {
     markerShown(id) { const m = markers.get(id); return !!(m && m.sprite.visible); },
     ready: backdrop.ready,
     get backdrop() { return backdrop.kind; },
+    /** Direct children of the scene by three.js type, e.g. {Mesh: 1, Group: 3}: the backdrop, grid, markers, tracks and nothing else. */
+    sceneTypes() { const c = {}; for (const o of scene.children) c[o.type] = (c[o.type] || 0) + 1; return c; },
   };
   if (typeof window !== 'undefined') window.__sky = api; // headless tests
   return api;
