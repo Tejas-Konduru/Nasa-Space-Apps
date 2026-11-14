@@ -5,68 +5,40 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Other telescopes (dev)</title>
 <link rel="icon" href="data:,">
-<link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../css/base.css">
 <link rel="stylesheet" href="../css/aladin.css">
 <style>
-  /* dev-only stand-in for the rest of the app */
-  #dev { position: fixed; inset: 0; background: #000; color: #9a9a9a; padding: 24px; display: grid; align-content: start; gap: 14px; max-width: 520px; }
-  #dev h1 { margin: 0; font-size: 15px; color: #f2f2f2; font-weight: 600; }
-  #dev p { margin: 0; line-height: 1.5; }
-  #dev .row { display: flex; flex-wrap: wrap; gap: 6px; }
-  #dev button { color: #f2f2f2; border-color: rgba(255,255,255,.2); }
-  #dev code { color: #f2f2f2; }
-  #log { font: 11px ui-monospace, Menlo, monospace; white-space: pre-wrap; color: #6a6a6a; max-height: 30vh; overflow: auto; }
-  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  /* dev-only stand-in for the Field view's vetting column */
+  body { overflow: auto; padding: 24px; }
+  main { max-width: 340px; display: grid; gap: 14px; }
+  h1 { margin: 0; font-size: 15px; font-weight: 600; }
+  p { margin: 0; color: var(--ink-2); line-height: 1.5; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
 </style>
 </head>
 <body>
-<!-- Dev page: mounts only the Aladin panel with the shared store.
-     ?theme=dark|light, ?aladin=1 opens it, &survey=dss|2mass|unwise, &cats=simbad,gaia,catwise, ?view=field|sky -->
-<div id="dev">
+<!-- Dev page: mounts only the Other telescopes chips, as the Field view's vetting section does. ?theme=dark|light -->
+<main>
   <h1>Other telescopes · dev page</h1>
-  <p>Pick a challenge target. This sets <code>store.field</code> exactly as the Field view does; the panel should recentre.</p>
+  <p>Pick a challenge target (stands in for selecting a flagged source in the Field view), then press a chip.</p>
   <div class="row" id="targets"></div>
-  <div class="row">
-    <button id="fly">Fly to Orion Nebula (flyto event)</button>
-    <button id="big">Barnard, 1° field (catalogues off)</button>
-    <button id="view">View: <span id="view-name"></span></button>
-  </div>
-  <div id="log"></div>
-</div>
-<aside class="hud" id="aladin-panel" aria-label="Other telescopes"></aside>
-<div id="announce" class="vh" role="status" aria-live="polite"></div>
+  <div id="other"></div>
+</main>
 <script type="module">
-  import * as store from '../js/core/store.js';
-  import { mountAladin } from '../js/aladin/index.js';
+  import { mountOtherTelescopes } from '../js/aladin/index.js';
   import { EXAMPLES } from '../js/field/index.js';
-
   const q = new URLSearchParams(location.search);
   if (q.get('theme')) document.documentElement.setAttribute('data-theme', q.get('theme'));
-  const log = m => { const el = document.getElementById('log'); el.textContent = `${new Date().toLocaleTimeString()}  ${m}\n` + el.textContent; };
-  store.on('field', f => log(`field → RA ${f.ra}, Dec ${f.dec}, ${f.sizeArcsec}″`));
-  store.listen('flyto', p => log(`flyto → RA ${p.ra}, Dec ${p.dec}`));
-
-  const targets = document.getElementById('targets');
+  const ot = mountOtherTelescopes(document.getElementById('other'));
+  const row = document.getElementById('targets');
   for (const ex of EXAMPLES) {
     const b = document.createElement('button'); b.textContent = ex.label.split(' · ')[0];
-    b.addEventListener('click', () => store.set('field', { ra: ex.ra, dec: ex.dec, sizeArcsec: ex.sizeArcsec, det: ex.det }));
-    targets.append(b);
+    b.addEventListener('click', () => ot.setTarget({ ra: ex.ra, dec: ex.dec, stampArcsec: 93 }));
+    row.append(b);
   }
-  document.getElementById('fly').addEventListener('click', () => store.emit('flyto', { ra: 83.8221, dec: -5.3911 }));
-  document.getElementById('big').addEventListener('click', () => store.set('field', { ra: 269.4463, dec: 4.7682, sizeArcsec: 3600 }));
-  const vn = document.getElementById('view-name');
-  const views = ['sky', 'field', 'compare'];
-  document.getElementById('view').addEventListener('click', () => store.set('view', views[(views.indexOf(store.get('view')) + 1) % 3]));
-  store.on('view', v => { vn.textContent = v; log(`view → ${v}`); });
-
-  store.set('view', q.get('view') || 'field');
-  vn.textContent = store.get('view');
-  mountAladin(document.getElementById('aladin-panel'), store);
   const first = EXAMPLES.find(e => e.id === 'barnard') || EXAMPLES[0];
-  store.set('field', { ra: first.ra, dec: first.dec, sizeArcsec: first.sizeArcsec });
-  if (!q.has('aladin')) window.__aladinPanel.open();
+  ot.setTarget({ ra: first.ra, dec: first.dec, stampArcsec: 93 });
 </script>
 </body>
 </html>
