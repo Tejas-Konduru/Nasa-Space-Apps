@@ -108,3 +108,13 @@ SwiftShader elsewhere; `CHROME_GL=swiftshader|metal|gl` overrides. `serve(port, 
 refuses a stale one that serves other files. ES modules need http, not file:// — start your own
 `python3 -m http.server <port> --bind 127.0.0.1` from your worktree root on a free port (8100–8199). Never npm install into the repo.
 Put tests under `tests/`; screenshots in the scratchpad, never in git.
+
+<!-- aladin:doc -->
+## Other telescopes panel (aladin)
+
+`app/js/aladin/index.js` exports `mountAladin(el, store)`, mounted into `<aside id="aladin-panel">` after the field view.
+It follows `store.field` and `flyto`, hides itself in Compare, and lazy-loads Aladin Lite v3 from the CDS CDN the first
+time it is opened (so a blocked CDN never affects boot). Surveys and catalogues are listed in `app/js/aladin/geom.js`.
+Deep link: `?aladin=1[&survey=dss|2mass|unwise][&cats=simbad,gaia,catwise]`. Dev page: `app/dev/aladin.html`.
+Test: `node tests/aladin.test.mjs`. Installed and removed by `node scripts/setup-aladin.mjs [--uninstall]`.
+<!-- /aladin:doc -->
