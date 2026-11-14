@@ -1,81 +1,68 @@
-// node tests/aladin.test.mjs — pure helpers of the Aladin panel plus a check that it is wired into the app.
+// node tests/aladin.test.mjs — Other telescopes chips: pure helpers, wiring into the Field view, and no vendored Aladin.
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { SURVEYS, CATALOGS, fovDeg, catalogRadiusDeg, footprint, normRa, isTarget, aladinUrl, describe, parseParams, surveyById, MAX_CATALOG_RADIUS_DEG } from '../app/js/aladin/geom.js';
+import { dirname, join, relative } from 'node:path';
+import { SURVEYS, SIMBAD, fovDeg, footprint, normRa, isTarget, aladinUrl, describe, surveyById, DEFAULT_STAMP_ARCSEC } from '../app/js/aladin/geom.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 let n = 0; const t = (name, fn) => { fn(); n++; };
 
-t('surveys: DSS, 2MASS, unWISE with HiPS ids', () => {
-  assert.deepEqual(SURVEYS.map(s => s.id).sort(), ['2mass', 'dss', 'unwise']);
+t('surveys: DSS2, 2MASS, unWISE with HiPS ids and dates', () => {
+  assert.deepEqual(SURVEYS.map(s => s.label), ['DSS2', '2MASS', 'unWISE']);
+  assert.deepEqual(SURVEYS.map(s => s.dates), ['1980s–90s', '1997–2001', '2010–2020']);
   for (const s of SURVEYS) assert.match(s.hips, /^P\//);
+  assert.equal(SIMBAD.label, 'SIMBAD');
   assert.equal(surveyById('nope').id, SURVEYS[0].id);
 });
 
-t('catalogues: SIMBAD plus VizieR tables', () => {
-  assert.equal(CATALOGS.find(c => c.id === 'gaia').vizier, 'I/355/gaiadr3');
-  assert.equal(CATALOGS.find(c => c.id === 'catwise').vizier, 'II/365/catwise');
-  assert.equal(CATALOGS.find(c => c.id === 'simbad').vizier, undefined);
-});
-
-t('fov: padded, in degrees, clamped', () => {
-  assert.ok(Math.abs(fovDeg(300) - 300 * 1.6 / 3600) < 1e-12);
-  assert.equal(fovDeg(1), 1 / 60);
-  assert.equal(fovDeg(1e9), 10);
-  assert.equal(fovDeg(undefined), fovDeg(300));
-  assert.equal(fovDeg(-5), fovDeg(300));
-});
-
-t('catalogue radius covers the corners; 1° field is over the limit', () => {
-  assert.ok(Math.abs(catalogRadiusDeg(3600) - Math.SQRT1_2) < 1e-12);
-  assert.ok(catalogRadiusDeg(300) < MAX_CATALOG_RADIUS_DEG);
-  assert.ok(catalogRadiusDeg(3600) > MAX_CATALOG_RADIUS_DEG);
+t('fov: 2.5× the stamp, clamped to 2′–1°', () => {
+  assert.ok(Math.abs(fovDeg(93) - 93 * 2.5 / 3600) < 1e-12);
+  assert.equal(fovDeg(1), 2 / 60);
+  assert.equal(fovDeg(1e9), 1);
+  assert.equal(fovDeg(undefined), fovDeg(DEFAULT_STAMP_ARCSEC));
 });
 
 t('footprint: square around the centre, RA stretched by 1/cos(dec), wraps at 0h', () => {
-  const f = footprint(10, 60, 3600);
-  assert.equal(f.length, 4);
-  const ras = f.map(p => p[0]), decs = f.map(p => p[1]);
+  const f = footprint(10, 60, 3600), ras = f.map(p => p[0]), decs = f.map(p => p[1]);
   assert.ok(Math.abs(Math.max(...decs) - 60.5) < 1e-9 && Math.abs(Math.min(...decs) - 59.5) < 1e-9);
   assert.ok(Math.abs((Math.max(...ras) - Math.min(...ras)) - 1 / Math.cos(Math.PI / 3)) < 1e-9);
   const w = footprint(0.01, 0, 360);
-  assert.ok(w.every(p => p[0] >= 0 && p[0] < 360));
-  assert.ok(w.some(p => p[0] > 359));
+  assert.ok(w.every(p => p[0] >= 0 && p[0] < 360) && w.some(p => p[0] > 359));
   assert.ok(footprint(0, 89.99, 3600).every(p => p[1] <= 90));
 });
 
-t('normRa / isTarget', () => {
+t('normRa / isTarget / links / labels', () => {
   assert.equal(normRa(-10), 350); assert.equal(normRa(370), 10);
-  assert.ok(isTarget({ ra: 1, dec: 2 }));
-  assert.ok(!isTarget({ ra: 1, dec: 95 })); assert.ok(!isTarget(null)); assert.ok(!isTarget({ ra: NaN, dec: 0 }));
-});
-
-t('links and labels', () => {
-  const u = new URL(aladinUrl({ ra: 269.4463, dec: 4.7682, sizeArcsec: 300 }, 'dss'));
+  assert.ok(isTarget({ ra: 1, dec: 2 })); assert.ok(!isTarget({ ra: 1, dec: 95 })); assert.ok(!isTarget(null));
+  const u = new URL(aladinUrl({ ra: 269.4463, dec: 4.7682, stampArcsec: 93 }, 'dss2'));
   assert.equal(u.hostname, 'aladin.cds.unistra.fr');
   assert.equal(u.searchParams.get('survey'), 'P/DSS2/color');
   assert.equal(u.searchParams.get('target'), '269.44630 4.76820');
-  assert.match(describe({ ra: 269.4463, dec: 4.7682, sizeArcsec: 300 }), /^RA 269\.4463°, Dec \+4\.7682° · 8′ view$/);
-  assert.match(describe({ ra: 133.76, dec: -7.24, sizeArcsec: 3600 }), /Dec -7\.2400° · 1\.6° view/);
+  assert.match(describe({ ra: 269.4463, dec: 4.7682, stampArcsec: 93 }), /^RA 269\.4463°, Dec \+4\.7682° · 3\.9′ view$/);
   assert.equal(describe(null), 'No position yet');
 });
 
-t('deep-link params', () => {
-  assert.deepEqual(parseParams('?aladin=1&survey=DSS&cats=gaia,bogus,simbad'), { open: true, survey: 'dss', cats: ['gaia', 'simbad'] });
-  assert.deepEqual(parseParams('?ra=1&dec=2'), { open: false });
-  assert.deepEqual(parseParams('?aladin=0&survey=hubble'), { open: false });
-});
-
-t('wired into the app (run node scripts/setup-aladin.mjs if this fails)', () => {
+t('wired into the Field view vetting section, not a floating panel', () => {
+  const field = readFileSync(join(ROOT, 'app/js/field/index.js'), 'utf8');
   const html = readFileSync(join(ROOT, 'app/index.html'), 'utf8');
   const main = readFileSync(join(ROOT, 'app/js/main.js'), 'utf8');
-  assert.ok(html.includes('href="css/aladin.css"'), 'index.html loads css/aladin.css');
-  assert.ok(html.includes('id="aladin-panel"'), 'index.html has <aside id="aladin-panel">');
-  assert.ok(main.includes("load('aladin'") && main.includes("run('aladin'"), 'main.js loads and mounts the panel');
-  assert.ok(main.indexOf("run('aladin'") < main.indexOf('const deep = deepLink()'), 'panel mounts before deep links set the field');
-  assert.ok(existsSync(join(ROOT, 'app/css/aladin.css')));
+  const vet = field.slice(field.indexOf('class="fv-vet"'), field.indexOf('class="fv-actions"'));
+  assert.ok(vet.includes('data-ref="other"'), 'vetting section has the Other telescopes mount');
+  assert.ok(field.includes("import('../aladin/index.js')"), 'field view lazy-loads the module');
+  assert.ok(/updateOther\(ra, dec\)/.test(field), 'renderVet updates the target');
+  assert.ok(html.includes('href="css/aladin.css"'));
+  assert.ok(!html.includes('aladin-panel') && !main.includes('aladin'), 'no floating panel left over');
+});
+
+t('Aladin Lite (GPL-3.0) is not vendored: only loaded from the CDS CDN', () => {
+  const files = []; const walk = d => { for (const f of readdirSync(d)) { if (['node_modules', '.git', '.cache'].includes(f)) continue; const p = join(d, f); statSync(p).isDirectory() ? walk(p) : files.push(p); } };
+  walk(ROOT);
+  const named = files.filter(p => /aladin/i.test(p.split('/').pop()) && /\.(js|mjs|wasm)$/.test(p) && !/app\/js\/aladin\/(index|geom)\.js$|tests\/aladin\.test\.mjs$|scripts\/setup-aladin\.mjs$/.test(p));
+  assert.deepEqual(named.map(p => relative(ROOT, p)), [], 'no Aladin library files in the repo');
+  const src = readFileSync(join(ROOT, 'app/js/aladin/index.js'), 'utf8');
+  assert.ok(src.includes("'https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js'"));
+  assert.ok(src.length < 20000, 'our module is small; the library is not inlined');
 });
 
 console.log(`aladin: ${n}/${n} passed`);
