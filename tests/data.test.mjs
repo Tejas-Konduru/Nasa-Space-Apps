@@ -132,6 +132,11 @@ test('snapshots: one saved field per example target, each decodes via toField; P
   }
   assert.ok(readSnap('psyche.json').known.some(k => /Psyche/.test(k.name) && (k.kind || 'sb') === 'sb'), 'Psyche is a JPL known object in its field');
   assert.ok(idx.candidates.some(c => /Psyche/.test(c.name) && c.status === 'Matched' && c.simulated === false), 'and a Matched candidate for the panel');
+  // ISS-09: the Epsilon Indi pair is one Gaia DR3 source; the server names it (GAIA_NAMES) and the saved files say the same
+  const { GAIA_NAMES } = await import('../server/lib/gaia.mjs');
+  assert.equal(GAIA_NAMES['6412596012146801152'], 'Epsilon Indi Ba/Bb');
+  assert.ok(readSnap('epsindi.json').known.some(k => k.name === 'Epsilon Indi Ba/Bb' && k.kind === 'star' && k.gaiaId === '6412596012146801152'), 'named in its field, not listed by Gaia id');
+  assert.ok(idx.candidates.some(c => c.name === 'Epsilon Indi Ba/Bb' && c.tag === 'Known high-proper-motion star · Epsilon Indi Ba/Bb'), 'and in the panel');
   for (const c of idx.candidates) {
     for (const k of ['id', 'name', 'tag', 'status', 'band', 'note']) assert.equal(typeof c[k], 'string', k);
     assert.equal(c.pipelineStatus, c.status); assert.ok(c.pos.every(p => p === null || (p.length === 2 && p.every(Number.isFinite))));
@@ -172,6 +177,37 @@ test('snapshot mode: boots from the saved files when no server answers; getField
     assert.equal(data.findSnapshot(T, 0.03, 0).exact, false); assert.equal(data.findSnapshot(T, 0.05, 0), null);
     assert.equal(data.findSnapshot(T, NaN, 0), null);
   } finally { srv.close(); delete globalThis.PLANETX_SNAPSHOTS; }
+});
+
+test('getField without ra/dec: refused before any request in live and snapshot modes, still fine for the simulation (ISS-25)', async () => {
+  const sim = await dataModule('http://127.0.0.1:9');
+  try { assert.equal((await sim.getField({})).simulated, true, 'sim: picks its own centre'); } catch (e) { assert.match(e.message, /pipeline\/index\.js/); }
+  // live: a stand-in server (health + one scan) that counts field requests; none may arrive for a request without a position
+  let fields = 0;
+  const srv = http.createServer((req, res) => {
+    const p = req.url.split('?')[0], ok = b => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(b)); };
+    if (p === '/api/health') return ok({ ok: true });
+    if (p === '/api/scans') return ok({ epochs: [{ id: 1, label: 'Scan 1', date: 'Sep 2025' }] });
+    if (p === '/api/candidates') return ok({ candidates: [] });
+    if (p === '/api/field') fields++;
+    res.writeHead(400, { 'Content-Type': 'application/json' }); res.end('{"error":"stand-in server has no fields"}');
+  });
+  const url = await listen(srv);
+  try {
+    const store = await freshStore(); const toasts = []; store.listen('toast', m => toasts.push(m));
+    const live = await dataModule(url); await live.initData(store);
+    assert.equal(store.get('source').mode, 'live');
+    for (const q of [{}, { ra: 70.42 }, { ra: 70.42, dec: NaN }, { dec: 19.18, fallback: true }]) await assert.rejects(live.getField(q), /^Error: Field request needs ra and dec$/, JSON.stringify(q));
+    assert.equal(fields, 0, 'no /api/field request for a missing position'); assert.equal(toasts.length, 0, 'and no simulated stand-in');
+    await assert.rejects(live.getField({ ra: 70.42, dec: 19.18, fallback: false }), /stand-in server has no fields/, 'a complete request still goes to the server');
+    assert.equal(fields, 1);
+  } finally { srv.close(); }
+  const snap = serveSnapshots(); const base = await listen(snap); globalThis.PLANETX_SNAPSHOTS = base + '/';
+  try {
+    const store = await freshStore(); const data = await dataModule('http://127.0.0.1:9'); await data.initData(store);
+    assert.ok(data.isSnapshot());
+    await assert.rejects(data.getField({}), /Field request needs ra and dec/);
+  } finally { snap.close(); delete globalThis.PLANETX_SNAPSHOTS; }
 });
 
 test('?data=sim forces the simulation even when snapshots are available', async () => {

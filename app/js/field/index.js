@@ -165,6 +165,15 @@ export function mountField(el, store) {
     try { data = await import('../data/index.js'); } catch { data = null; }
     dataMod = data;
     if (seq !== loadSeq) return;
+    // no position (store.field null; the UI always sets one, the store need not — ISS-25): real data needs a patch to
+    // fetch, so open on the source's home patch instead of requesting ra=undefined. loadedFor keeps the store's value.
+    if ((liveSource() || snapshotSource()) && !(req && Number.isFinite(req.ra) && Number.isFinite(req.dec))) {
+      const s = store.get('source') || {};
+      // snapshot mode: the home patch has no saved field (it would show the simulation), so open the first saved target as itself
+      const saved = snapshotSource() && Array.isArray(s.targets) ? s.targets[0] : null, home = s.home || (data && data.HOME);
+      if (saved) req = { ...(req || {}), ra: saved.ra, dec: saved.dec, sizeArcsec: saved.sizeArcsec, det: saved.det, t: saved.t };
+      else if (home) req = { ...(req || {}), ra: home.ra, dec: home.dec, sizeArcsec: Number.isFinite(req?.sizeArcsec) ? req.sizeArcsec : home.sizeArcsec };
+    }
     const live = liveSource() && data && typeof data.isLive === 'function' && data.isLive();
     if (!live) {
       let f = null;
