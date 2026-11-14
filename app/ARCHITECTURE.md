@@ -110,11 +110,11 @@ refuses a stale one that serves other files. ES modules need http, not file:// �
 Put tests under `tests/`; screenshots in the scratchpad, never in git.
 
 <!-- aladin:doc -->
-## Other telescopes panel (aladin)
+## Other telescopes (aladin)
 
-`app/js/aladin/index.js` exports `mountAladin(el, store)`, mounted into `<aside id="aladin-panel">` after the field view.
-It follows `store.field` and `flyto`, hides itself in Compare, and lazy-loads Aladin Lite v3 from the CDS CDN the first
-time it is opened (so a blocked CDN never affects boot). Surveys and catalogues are listed in `app/js/aladin/geom.js`.
-Deep link: `?aladin=1[&survey=dss|2mass|unwise][&cats=simbad,gaia,catwise]`. Dev page: `app/dev/aladin.html`.
-Test: `node tests/aladin.test.mjs`. Installed and removed by `node scripts/setup-aladin.mjs [--uninstall]`.
+`app/js/aladin/index.js` exports `mountOtherTelescopes(el)`. The Field view mounts it into `[data-ref="other"]` in the vetting
+section (lazy `import()`, first time a source is selected) and calls `setTarget({ra, dec, stampArcsec})` from `renderVet`.
+Chips: DSS2 (1980s–90s), 2MASS (1997–2001), unWISE (2010–2020) and SIMBAD names; pressing a lit chip closes the viewer.
+Aladin Lite (GPL-3.0) is never copied into the repo: it is loaded from the CDS CDN only when a chip is pressed. Surveys and
+dates live in `app/js/aladin/geom.js`. Dev page `app/dev/aladin.html`; test `node tests/aladin.test.mjs`.
 <!-- /aladin:doc -->

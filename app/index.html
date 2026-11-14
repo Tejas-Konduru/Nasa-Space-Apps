@@ -63,10 +63,6 @@
   </div>
 </div>
 
-<!-- aladin:begin — "Other telescopes" panel: filled by app/js/aladin -->
-<aside class="hud" id="aladin-panel" aria-label="Other telescopes"></aside>
-<!-- aladin:end -->
-
 <!-- full-screen views -->
 <section id="view-compare" hidden></section>
 <section id="view-field" hidden></section>
@@ -81,9 +77,8 @@
     <ul>
       <li><b>Sky</b>: the whole sky with every flagged mover. Pick a marker, step through scans on the timeline, or Blink between them.</li>
       <li><b>Compare</b>: two scans of the selected mover with a wipe, a difference image, or blink.</li>
-      <li><b>Field</b>: analyse one patch of sky: align the epochs, subtract, find what moved, and cross‑match it.</li>
+      <li><b>Field</b>: analyse one patch of sky: align the epochs, subtract, find what moved, and cross‑match it. Its vetting panel can show the selected source in DSS2, 2MASS and unWISE images, with SIMBAD names. <!-- aladin-help --></li>
       <li><b>Movers panel</b>: review candidates. Filter, sort, mark them follow‑up or rejected, and add notes.</li>
-      <li><b>Other telescopes</b>: the same patch of sky in DSS, 2MASS or unWISE, with object labels from SIMBAD, Gaia and CatWISE. <!-- aladin-help --></li>
     </ul>
     <h3>Moving Sky demo</h3>
     <p><a class="sheet-link" id="moving-sky-sheet-link" href="../artifacts/moving-sky/index.html">Open SPHEREx Moving Sky</a>: the flagging pipeline step by step on one simulated field, with blink, difference and track views and a vetting panel for each flag.</p>
@@ -107,7 +102,7 @@
     </div>
     <h3>Imagery</h3>
     <p class="credit">Sky: NASA/Goddard Space Flight Center Scientific Visualization Studio (Deep Star Maps 2020). Gaia DR2: ESA/Gaia/DPAC. Not endorsed by NASA.</p>
-    <p class="credit">Other telescopes: Aladin Lite (CDS, Strasbourg); DSS, 2MASS and unWISE via CDS HiPS; labels from SIMBAD, Gaia DR3 (ESA/Gaia/DPAC) and CatWISE2020 via VizieR. <!-- aladin-credit --></p>
+    <p class="credit">Other telescopes: Aladin Lite (CDS, Strasbourg), loaded from the CDS server; DSS2, 2MASS and unWISE via CDS HiPS; names from SIMBAD (CDS). <!-- aladin-credit --></p>
   </div>
 </div>
 
