@@ -1,33 +1,58 @@
 // "Other telescopes" chips for the Field view's vetting section: DSS2, 2MASS and unWISE images of the selected
 // source through Aladin Lite (CDS), plus SIMBAD name labels.
 //
-// Aladin Lite (GPL-3.0) is NOT bundled in this repo: it is loaded at runtime from the CDS CDN the first time a
-// chip is pressed, so a blocked CDN (claude.ai sandbox, offline) never affects the rest of the app.
+// Aladin Lite (GPL-3.0) is NOT bundled in this repo: it is fetched at runtime the first time a chip is pressed,
+// so a blocked CDN (claude.ai sandbox, offline) never affects the rest of the app. Sources, tried in order:
+//   1. the official npm package (aladin-lite, pinned) as an ES module from jsDelivr;
+//   2. the CDS-hosted script, which defines a global `A` (it returned 404 on 2026-11-13, hence the npm source first).
 //
 //   const ot = mountOtherTelescopes(el);           // el: an empty element inside the vetting section
 //   ot.setTarget({ ra, dec, stampArcsec });        // degrees; call whenever the selected source changes
 import { SURVEYS, SIMBAD, surveyById, fovDeg, footprint, isTarget, aladinUrl, describe, DEFAULT_STAMP_ARCSEC } from './geom.js';
 
+export const ALADIN_VERSION = '3.8.2';
+export const ALADIN_ESM = `https://cdn.jsdelivr.net/npm/aladin-lite@${ALADIN_VERSION}/dist/aladin.js`;
 export const ALADIN_SRC = 'https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js';
 const LOAD_TIMEOUT_MS = 20000;
 
-let loading = null;
-/** Load Aladin Lite v3 from the CDN once and wait for it to initialise. Resolves to the global `A`. */
-export function loadAladin(src = globalThis.PLANETX_ALADIN_SRC || ALADIN_SRC) {
-  if (globalThis.A && typeof globalThis.A.aladin === 'function') return Promise.resolve(globalThis.A.init).then(() => globalThis.A);
-  if (loading) return loading;
-  loading = new Promise((resolve, reject) => {
+const usable = A => A && typeof A.aladin === 'function';
+const withTimeout = (p, ms = LOAD_TIMEOUT_MS) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('Aladin Lite took too long to load')), ms))]);
+
+/** ES-module build (npm): `export default A`. */
+async function fromModule(url) {
+  const mod = await import(/* @vite-ignore */ url);
+  const A = mod.default || mod.A;
+  if (!usable(A)) throw new Error('Aladin Lite module did not export A');
+  await A.init;
+  return A;
+}
+
+/** Classic build (CDS): sets the global `A`. */
+function fromScript(url) {
+  return new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = src; s.async = true; s.charset = 'utf-8';
-    const timer = setTimeout(() => reject(new Error('Aladin Lite took too long to load')), LOAD_TIMEOUT_MS);
-    s.onload = () => {
-      const A = globalThis.A;
-      if (!A || typeof A.aladin !== 'function') { clearTimeout(timer); reject(new Error('Aladin Lite loaded but did not start')); return; }
-      Promise.resolve(A.init).then(() => { clearTimeout(timer); resolve(A); }, e => { clearTimeout(timer); reject(e); });
-    };
-    s.onerror = () => { clearTimeout(timer); reject(new Error('Could not reach the Aladin Lite server')); };
+    s.src = url; s.async = true; s.charset = 'utf-8';
+    s.onload = () => { const A = globalThis.A; if (!usable(A)) { reject(new Error('Aladin Lite loaded but did not start')); return; } Promise.resolve(A.init).then(() => resolve(A), reject); };
+    s.onerror = () => { s.remove(); reject(new Error(`could not load ${url}`)); };
     document.head.appendChild(s);
-  }).catch(err => { loading = null; throw err; });
+  });
+}
+
+let loading = null;
+/** Load Aladin Lite v3 once (npm module first, CDS script as fallback) and wait for it to initialise. Resolves to `A`. */
+export function loadAladin() {
+  if (usable(globalThis.A)) return Promise.resolve(globalThis.A.init).then(() => globalThis.A);
+  if (loading) return loading;
+  const override = globalThis.PLANETX_ALADIN_SRC; // tests and self-hosting: a classic script URL
+  const sources = override ? [['script', override]] : [['module', ALADIN_ESM], ['script', ALADIN_SRC]];
+  loading = (async () => {
+    const errors = [];
+    for (const [kind, url] of sources) {
+      try { const A = await withTimeout(kind === 'module' ? fromModule(url) : fromScript(url)); globalThis.A = A; return A; }
+      catch (e) { errors.push(e); console.warn(`[planet-x] Aladin Lite source failed (${url}):`, e); }
+    }
+    throw new Error('Could not reach the Aladin Lite server');
+  })().catch(err => { loading = null; throw err; });
   return loading;
 }
 
