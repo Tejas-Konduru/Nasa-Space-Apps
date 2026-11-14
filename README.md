@@ -135,7 +135,7 @@ Rules of thumb: anything simulated must say so in the UI (`simulated: true` flow
 
 ### 5. Tests
 
-Run the relevant suite before you push. Node-only suites take seconds; browser suites need Chrome and take a minute or two each (longer on a machine without a GPU: Chrome renders the sky in software). Don't run two browser suites at the same time. Each browser suite serves the repo itself on a port in 8101–8107 and refuses to reuse a server there that serves different files, so a forgotten `http.server` from another checkout can't make it test the wrong code.
+Run the relevant suite before you push. Node-only suites take seconds; browser suites need Chrome and take a minute or two each (longer on a machine without a GPU: Chrome renders the sky in software). Don't run two browser suites at the same time. Each browser suite serves the repo itself on a port in 8101–8108 and refuses to reuse a server there that serves different files, so a forgotten `http.server` from another checkout can't make it test the wrong code. The server is python's `http.server`: on Windows the suites start it with `py -3` or `python` (the `python3` there is the Store stub); `PLANETX_PYTHON="py -3"` (or a path to `python.exe`) picks the interpreter on any platform.
 
 ```sh
 node tests/pipeline.test.mjs                        # detection pipeline (also checks parity with Moving Sky)

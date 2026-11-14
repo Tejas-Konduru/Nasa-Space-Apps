@@ -2,7 +2,7 @@
 // Run from the repo root:  node tests/shell.test.mjs
 // Serves the repo on 127.0.0.1:8101 itself (reuses a server already listening there). Screenshots go to the scratchpad.
 import { mkdirSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 import { launch, serve, SCRATCH } from './browser.mjs';
@@ -49,7 +49,7 @@ const sepDeg = (r1, d1, r2, d2) => { // hours, degrees
 // =====================================================================
 console.log('pure helpers (app/js/sky/coords.js)');
 {
-  const C = await import(path.join(ROOT, 'app/js/sky/coords.js'));
+  const C = await import(pathToFileURL(path.join(ROOT, 'app/js/sky/coords.js')).href); // a file URL: a bare Windows path is not an ESM specifier
   ok(C.fmtRA(19.9999) === '20h 00m' && C.fmtRA(23.999) === '0h 00m', `fmtRA carries rounding (${C.fmtRA(19.9999)})`);
   ok(C.fmtDec(-0.04) === '+0.0°' && C.fmtDec(-12.34) === '−12.3°', `fmtDec never shows −0.0° (${C.fmtDec(-0.04)})`);
   const g = q => JSON.stringify(C.parseGoto(q));
