@@ -90,6 +90,30 @@ test('toField: decodes frames and interpolates known-object positions', async ()
   assert.equal(f.simulated, false);
 });
 
+test('field size: one range shared by the deep link, the data module and the server (ISS-24)', async () => {
+  const L = await import('../app/js/core/limits.js');
+  const S = await import('../server/lib/field.mjs');
+  assert.deepEqual([L.FIELD_SIZE_MIN, L.FIELD_SIZE_MAX, L.FIELD_SIZE_DEFAULT], [S.SIZE_MIN, S.SIZE_MAX, S.SIZE_DEFAULT], 'client and server copies agree');
+  assert.equal(L.clampFieldSize(3000), 600); assert.equal(L.clampFieldSize(10), 40); assert.equal(L.clampFieldSize(300.4), 300); assert.equal(L.clampFieldSize('x'), 120);
+  const { liveSize, HOME } = await dataModule('http://127.0.0.1:9');
+  assert.equal(liveSize(10), 40); assert.equal(liveSize(600), 600); assert.equal(liveSize(119.6), 120);
+  assert.equal(liveSize(1968), 300, 'a sim-sized field re-requested live gets the 300″ default, not the maximum');
+  assert.equal(liveSize(NaN), HOME.sizeArcsec); assert.equal(HOME.sizeArcsec, 120);
+});
+
+test('server: a size outside 40–600″ is refused with a 400 that names the range (no upstream call)', async () => {
+  const { createServer } = await import('../server/index.mjs');
+  const srv = createServer(); const url = await listen(srv);
+  try {
+    for (const [q, re] of [['size=10', /size=10 \(40–600\)/], ['size=39', /size=39/], ['size=601', /size=601/], ['size=abc', /size=abc/]]) {
+      const r = await fetch(`${url}/api/field?ra=70.42&dec=19.18&${q}`); const j = await r.json();
+      assert.equal(r.status, 400, q); assert.match(j.error, re);
+    }
+    const c = await fetch(`${url}/api/candidates?size=20`); assert.equal(c.status, 400);
+    assert.match((await c.json()).error, /40–600/);
+  } finally { srv.close(); }
+});
+
 test('server: /api/health, CORS, and a real /api/field with ≥ 2 epochs', { skip: OFFLINE && 'PLANETX_OFFLINE=1', timeout: 600000 }, async () => {
   const { createServer } = await import('../server/index.mjs');
   const srv = createServer(); const url = await listen(srv);

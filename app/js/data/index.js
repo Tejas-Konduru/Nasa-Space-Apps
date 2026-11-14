@@ -4,8 +4,10 @@
 //   initData(store)                 → fills store keys scans, candidates, source
 //   getField({ra, dec, sizeArcsec}) → Promise<Field>  (field.simulated is always truthful)
 
+import { FIELD_SIZE_MIN, FIELD_SIZE_MAX, FIELD_SIZE_DEFAULT, clampFieldSize } from '../core/limits.js';
+
 export const SERVER = (typeof globalThis !== 'undefined' && globalThis.PLANETX_SERVER) || 'http://localhost:8787';
-export const HOME = { ra: 70.42, dec: 19.18, sizeArcsec: 120 }; // live mode's default field (Taurus, near the ecliptic)
+export const HOME = { ra: 70.42, dec: 19.18, sizeArcsec: FIELD_SIZE_DEFAULT }; // live mode's default field (Taurus, near the ecliptic)
 const HEALTH_TIMEOUT_MS = 1500;
 
 // ---------- simulated source (the UI demo's placeholder data) ----------
@@ -191,9 +193,10 @@ async function simField(ra, dec) {
   return f;
 }
 
-export const LIVE_MAX_ARCSEC = 600, LIVE_DEFAULT_ARCSEC = 300;
-/** The size actually requested from the server: 20–600″; larger requests (the sim's 1968″ default) get 300″. */
-export const liveSize = s => !Number.isFinite(s) ? HOME.sizeArcsec : s > LIVE_MAX_ARCSEC ? LIVE_DEFAULT_ARCSEC : Math.max(20, Math.round(s));
+export const LIVE_MIN_ARCSEC = FIELD_SIZE_MIN, LIVE_MAX_ARCSEC = FIELD_SIZE_MAX, LIVE_DEFAULT_ARCSEC = 300;
+/** The size actually requested from the server: rounded and clamped to 40–600″ (core/limits.js, the server's own range),
+ *  except that a request wider than the maximum (the sim's 1968″ field re-requested live) gets the 300″ default. */
+export const liveSize = s => !Number.isFinite(s) ? HOME.sizeArcsec : s > LIVE_MAX_ARCSEC ? LIVE_DEFAULT_ARCSEC : clampFieldSize(s);
 export const isLive = () => mode === 'live';
 
 /**

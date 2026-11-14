@@ -88,7 +88,9 @@ Live `Field`s carry three things the simulation doesn't (all optional; the pipel
   (`kind: 'known'`, from the predicted positions, or `predicted: true` when nothing clean sits there).
 
 Deep links (`main.js`): `/app/?ra=&dec=[&size=&det=&t=]` opens the Field on that patch (degrees or sexagesimal via
-`sky/coords.js parseCentre`); `?api=https://…` points the data module at a hosted data server. The field view keeps the
+`sky/coords.js parseCentre`); `?api=https://…` points the data module at a hosted data server. `size` is clamped to
+40–600″ by `core/limits.js`, the one client copy of the server's range (`server/lib/field.mjs` SIZE_MIN/SIZE_MAX), which the
+data module's `liveSize` and the Field view's Live request box use too. The field view keeps the
 address bar in sync (`history.replaceState`) while a field is open. Built-in examples (`field/index.js EXAMPLES`): 16 Psyche
 plus the challenge brief's five test targets.
 

@@ -7,6 +7,8 @@ import { celestialWCS, spectralWCS, gridSky, gridPixel } from './wcs.mjs';
 import { mapLimit, memoJSON } from './net.mjs';
 
 export const SCALE = 6.15; // arcsec/px, SPHEREx native pixel
+/** Accepted field size, arcsec: the grid is 8–98 px (a 40″ request rounds up to 8 px ≈ 49″). app/js/core/limits.js mirrors these. */
+export const SIZE_MIN = 40, SIZE_MAX = 600, SIZE_DEFAULT = 120;
 // Spectral resolving power per detector band (SPHEREx: R≈41 for bands 1–3, ≈35 for 4, ≈110 for 5, ≈130 for 6).
 const R = { 1: 41, 2: 41, 3: 41, 4: 35, 5: 110, 6: 130 };
 
@@ -125,7 +127,7 @@ const building = new Map(); // id → Promise, so identical concurrent requests 
  *   known=false skips JPL (slow); gaia=false skips the Gaia DR3 star overlay (fast, ~1 s).
  */
 export async function buildField(q) {
-  const size = Math.min(Math.max(q.size || 120, 40), 600);
+  const size = Math.min(Math.max(q.size || SIZE_DEFAULT, SIZE_MIN), SIZE_MAX);
   const N = Math.max(8, Math.round(size / SCALE));
   const det = q.lam ? null : (q.det || 1), perEpoch = Math.min(Math.max(q.perEpoch || 2, 1), 4);
   const gaiaWanted = q.gaia !== false;

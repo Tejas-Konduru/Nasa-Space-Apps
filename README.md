@@ -80,7 +80,7 @@ First load of a field takes ~10 s for the frames plus 1–2 min for the JPL know
 
 Three overlays sit above the image: **Flags** (what the pipeline found), **Known objects** (JPL ephemerides and Gaia high-proper-motion stars), **Gaia stars** (every Gaia DR3 star with G < 19 at the frame time) and **Bad pixels** (the SPHEREx pipeline's own FLAGS plane: red = bad, amber = contaminated). **Play** cycles through every pass at the reference wavelength like a little video.
 
-Any field can be shared or embedded by URL: `/app/?ra=269.4463&dec=4.7682&size=300&det=1` opens straight on Barnard's Star (RA/Dec in degrees or `08h55m10.8s`/`-07d14m42.5s`; `size` in arcsec, `det` 1–6, optional `t` as MJD or `2026-02-16`). The address bar updates as you move, so copying it is enough.
+Any field can be shared or embedded by URL: `/app/?ra=269.4463&dec=4.7682&size=300&det=1` opens straight on Barnard's Star (RA/Dec in degrees or `08h55m10.8s`/`-07d14m42.5s`; `size` 40–600 arcsec, clamped if outside; `det` 1–6; optional `t` as MJD or `2026-02-16`). The address bar updates as you move, so copying it is enough.
 
 ### 3. The Python backend
 

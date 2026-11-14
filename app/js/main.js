@@ -6,12 +6,13 @@ import { mountHud } from './sky/hud.js';
 import { mountCompare } from './compare/index.js';
 import { initDataStub, mountCandidatesStub, mountFieldStub } from './sky/fallbacks.js';
 import { parseCentre } from './sky/coords.js';
+import { clampFieldSize, FIELD_SIZE_MIN, FIELD_SIZE_MAX } from './core/limits.js';
 
 const $ = id => document.getElementById(id);
 const boot = { modules: {}, ready: false };
 window.__pxBoot = boot;
 
-// Deep links: /app/?ra=&dec=[&size=″&det=1-6&t=MJD|date] opens the Field view on that patch (RA/Dec in degrees or
+// Deep links: /app/?ra=&dec=[&size=40–600″&det=1-6&t=MJD|date] opens the Field view on that patch (RA/Dec in degrees or
 // sexagesimal), so a position can be embedded or shared; ?api=https://… points the data module at a hosted data
 // server (otherwise it looks for one on localhost:8787 only when the page itself is served locally).
 const Q = new URLSearchParams(location.search);
@@ -20,7 +21,11 @@ function deepLink() {
   if (!Q.has('ra') || !Q.has('dec')) return null;
   const c = parseCentre(`${Q.get('ra')}, ${Q.get('dec')}`); if (!c) { console.warn('[planet-x] ?ra/?dec not understood'); return null; }
   const f = { ra: c[0], dec: c[1] };
-  const size = +Q.get('size'); if (size >= 20 && size <= 3000) f.sizeArcsec = Math.round(size);
+  if (Q.has('size')) { // clamped into the server's range (core/limits.js) rather than dropped, so a shared link still opens near what was meant
+    const s = +Q.get('size');
+    if (Number.isFinite(s) && s > 0) { f.sizeArcsec = clampFieldSize(s); if (s < FIELD_SIZE_MIN || s > FIELD_SIZE_MAX) console.warn(`[planet-x] ?size=${Q.get('size')} is outside ${FIELD_SIZE_MIN}–${FIELD_SIZE_MAX}″; using ${f.sizeArcsec}″`); }
+    else console.warn('[planet-x] ?size not understood');
+  }
   const det = +Q.get('det'); if (det >= 1 && det <= 6 && Number.isInteger(det)) f.det = det;
   const t = (Q.get('t') || '').trim();
   if (/^\d{5}(\.\d+)?$/.test(t)) f.t = +t; else if (t) { const ms = Date.parse(/^\d{4}-\d\d-\d\d$/.test(t) ? t + 'T00:00:00Z' : t); if (Number.isFinite(ms)) f.t = ms / 86400000 + 40587; }

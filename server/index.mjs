@@ -3,7 +3,7 @@
 // Node >= 20, zero npm dependencies.  Run:  node server/index.mjs   (PORT env var, default 8787)
 import http from 'node:http';
 import zlib from 'node:zlib';
-import { scansAt, buildField, knownAt, progress } from './lib/field.mjs';
+import { scansAt, buildField, knownAt, progress, SIZE_MIN, SIZE_MAX, SIZE_DEFAULT } from './lib/field.mjs';
 import { COLLECTIONS, SIA_URL } from './lib/irsa.mjs';
 import { SB_IDENT } from './lib/jpl.mjs';
 import { GAIA_TAP } from './lib/gaia.mjs';
@@ -13,7 +13,7 @@ const PORT = +(process.env.PORT || 8787);
 const HOST = process.env.HOST || '127.0.0.1';
 const VERSION = '0.1.0';
 // Default "home" field for the app's live mode: Taurus near the ecliptic (the Moving Sky demo's field centre).
-export const HOME = { ra: 70.42, dec: 19.18, size: 120 };
+export const HOME = { ra: 70.42, dec: 19.18, size: SIZE_DEFAULT };
 
 const ORIGIN_OK = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
@@ -31,7 +31,10 @@ function num(sp, name, { required = true, min = -Infinity, max = Infinity } = {}
   const raw = sp.get(name);
   if (raw === null || raw === '') { if (required) throw Object.assign(new Error(`Missing parameter ${name}`), { status: 400 }); return undefined; }
   const v = Number(raw);
-  if (!Number.isFinite(v) || v < min || v > max) throw Object.assign(new Error(`Bad parameter ${name}=${raw}`), { status: 400 });
+  if (!Number.isFinite(v) || v < min || v > max) {
+    const range = Number.isFinite(min) && Number.isFinite(max) ? ` (${min}–${max})` : Number.isFinite(min) ? ` (≥ ${min})` : Number.isFinite(max) ? ` (≤ ${max})` : '';
+    throw Object.assign(new Error(`Bad parameter ${name}=${raw}${range}`), { status: 400 });
+  }
   return v;
 }
 const pos = sp => ({ ra: num(sp, 'ra', { min: 0, max: 360 }), dec: num(sp, 'dec', { min: -90, max: 90 }) });
@@ -79,7 +82,7 @@ const routes = {
   '/api/field': async sp => {
     const { ra, dec } = pos(sp);
     return buildField({
-      ra, dec, size: num(sp, 'size', { required: false, min: 20, max: 600 }) ?? 120,
+      ra, dec, size: num(sp, 'size', { required: false, min: SIZE_MIN, max: SIZE_MAX }) ?? SIZE_DEFAULT,
       det: num(sp, 'det', { required: false, min: 1, max: 6 }), lam: num(sp, 'lam', { required: false, min: 0.7, max: 5.1 }),
       perEpoch: num(sp, 'per', { required: false, min: 1, max: 4 }), known: sp.get('known') !== '0', gaia: sp.get('gaia') !== '0',
       mjd: num(sp, 't', { required: false, min: 60000, max: 70000 }),
@@ -96,7 +99,7 @@ const routes = {
   },
   '/api/candidates': async sp => {
     const ra = num(sp, 'ra', { required: false, min: 0, max: 360 }) ?? HOME.ra, dec = num(sp, 'dec', { required: false, min: -90, max: 90 }) ?? HOME.dec;
-    return candidatesFor(ra, dec, num(sp, 'size', { required: false, min: 20, max: 600 }) ?? HOME.size);
+    return candidatesFor(ra, dec, num(sp, 'size', { required: false, min: SIZE_MIN, max: SIZE_MAX }) ?? HOME.size);
   },
 };
 

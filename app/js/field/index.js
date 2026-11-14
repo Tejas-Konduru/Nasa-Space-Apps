@@ -4,6 +4,7 @@
 import { simulateField, analyse, diff, maxStack, radec, fmtDt, fmtRA, fmtDec, spectrum, dist, psfModel } from '../pipeline/index.js';
 import { drawImage, drawStamp, drawOverlay, glyph, KIND_NAME } from './render.js';
 import { parseCentre } from '../sky/coords.js';
+import { clampFieldSize } from '../core/limits.js';
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const spokenT = l => l.replace(/(\d+) (d|h|min)$/, (_, n, u) => `${n} ${{ d: 'day', h: 'hour', min: 'minute' }[u]}${n === '1' ? '' : 's'}`);
@@ -165,13 +166,16 @@ export function mountField(el, store) {
   // Sim: instant. Live: two requests in parallel, frames-only (known=0, ~10 s cold) and with JPL known objects
   // (up to minutes cold, the server shares the IRSA downloads between them). Frames show as soon as they arrive;
   // known objects are filled in when JPL answers. Everything is cached by the server afterwards.
-  let ctl = null, loading = false, tickT = null, pollT = null, loadStart = 0, knownState = null, req = null;
+  let ctl = null, loading = false, tickT = null, pollT = null, loadStart = 0, knownState = null, req = null, dataMod = null;
   const liveSource = () => { const s = store.get('source'); return !!(s && s.mode === 'live' && s.live !== false); };
+  /** The size the data module will actually request (its liveSize rule), or the shared clamp if the module is missing. */
+  const liveSizeOf = s => dataMod && typeof dataMod.liveSize === 'function' ? dataMod.liveSize(s) : clampFieldSize(s);
   async function load() {
     req = store.get('field'); loadedFor = req; const seq = ++loadSeq;
     if (ctl) ctl.abort(); ctl = null; stopLoading();
     let data = null;
     try { data = await import('../data/index.js'); } catch { data = null; }
+    dataMod = data;
     if (seq !== loadSeq) return;
     const live = liveSource() && data && typeof data.isLive === 'function' && data.isLive();
     if (!live) {
@@ -261,7 +265,7 @@ export function mountField(el, store) {
     // shown while loading too, so a slow request can be changed without waiting for it
     const sec = $('live'), on = liveSource() && (loading || (!!field && (!field.simulated || !!field.fallbackReason)));
     sec.hidden = !on; if (!on) return;
-    const r = req || {}, size = loading || !field ? (r.sizeArcsec > 600 ? 300 : Math.round(r.sizeArcsec || 120)) : field.request?.sizeArcsec ?? (field.sizeArcsec ? Math.round(field.sizeArcsec) : 300);
+    const r = req || {}, size = loading || !field ? liveSizeOf(r.sizeArcsec) : field.request?.sizeArcsec ?? (field.sizeArcsec ? Math.round(field.sizeArcsec) : 300);
     const sz = $('lsize'); if (![...sz.options].some(o => +o.value === size)) sz.add(new Option(`${size}″`, String(size)));
     sz.value = String(size); $('ldet').value = String(r.det || (field && !loading && field.detector) || 1);
     $('lt').value = Number.isFinite(r.t) ? String(r.t) : '';

@@ -209,6 +209,8 @@ console.log('desktop 1440×900, light');
 for (const scheme of ['dark', 'light']) {
   console.log(`phone 390×844, ${scheme}`);
   const { ctx, page, errors } = await open({ width: 390, height: 844, scheme, mobile: true });
+  { const r = await page.evaluate(() => { const b = document.getElementById('home-link').getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; });
+    ok(r[0] >= 40 && r[1] >= 40, `the "Planet X" title is a ≥ 40 px tap target on phones (${r[0]}×${r[1]}, ISS-27)`); }
   ok(await page.isVisible('#source-badge'), 'badge visible on phones');
   const overflow = await page.evaluate(() => {
     const W = window.innerWidth;
@@ -298,6 +300,14 @@ console.log('deep links: /app/?ra=&dec=[&size=&det=&t=]');
   await sex.waitForFunction(() => document.documentElement.dataset.ready === 'true' && window.__px.get('view') === 'field', null, { timeout: 60000 });
   const g = await sex.evaluate(() => window.__px.get('field'));
   ok(g && Math.abs(g.ra - 133.79513) < 1e-4 && Math.abs(g.dec + 7.24515) < 1e-4, 'deep link accepts sexagesimal coordinates (WISE 0855 as the brief writes it)');
+  // ISS-24: ?size= shares the server's 40–600″ range (core/limits.js); out-of-range values are clamped and logged, junk is ignored
+  const sz = await ctx.newPage(); const warns = [];
+  sz.on('console', m => { if (m.type() === 'warning') warns.push(m.text()); }); sz.on('pageerror', e => errors.push(String(e)));
+  const sizeOf = async q => { await sz.goto(URL_ + '?ra=241.5&dec=41&' + q); await sz.waitForFunction(() => document.documentElement.dataset.ready === 'true' && window.__px.get('view') === 'field', null, { timeout: 60000 }); return sz.evaluate(() => window.__px.get('field').sizeArcsec); };
+  ok(await sizeOf('size=3000') === 600, 'deep link ?size=3000 is clamped to the 600″ maximum');
+  ok(warns.some(w => /size=3000/.test(w) && /600/.test(w)), 'and the console says so: ' + warns.join(' | '));
+  ok(await sizeOf('size=10') === 40, 'deep link ?size=10 is raised to the 40″ minimum');
+  ok(await sizeOf('size=abc') === undefined, 'deep link ?size=abc is ignored (default size)');
   ok(errors.length === 0, 'no page errors on deep links: ' + errors.join(' | '));
   await ctx.close();
 }
