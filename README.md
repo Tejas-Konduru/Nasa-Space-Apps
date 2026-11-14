@@ -29,6 +29,8 @@ open http://localhost:8000/                     # homepage; "Open the sky" → /
 node server/index.mjs                           # optional: live SPHEREx data for any position on :8787
 ```
 
+On Windows, `py -m http.server 8000 --bind 127.0.0.1` if `python3` is not on your PATH.
+
 With the server running, the badge in the top bar switches from **Saved SPHEREx data** to **Live · SPHEREx**. First loads of a field take ~10 s (about a minute when JPL is also checked); results are cached in `server/.cache/`. Add `?data=sim` to the app URL to see the simulation instead.
 
 ## For the team
@@ -155,7 +157,7 @@ node qa/moving-sky.test.mjs                         # Moving Sky demo           
 - Branch from `main`, open a pull request, and run the suites your change touches. `main` deploys to GitHub Pages automatically (a minute or two after the push).
 - Keep real-data additions honest: the server's "known objects" are JPL ephemeris predictions, not pixel detections, and the frames are surface brightness after zodiacal-light subtraction, not calibrated photometry.
 - `server/.cache/` is ignored by git. It grows to a few hundred MB; delete it to start fresh.
-- Hackathon dates: 14–15 November 2026. The challenge dataset is handed out then; everything here already runs on the public SPHEREx quick-release data, so you can build and test before that.
+- Hackathon dates: 14–15 November 2026. The challenge dataset is handed out then; everything here already runs on the public SPHEREx releases (`spherex_dr1` + `spherex_qr3` as of Nov 2026), so you can build and test before that.
 
 ## Credits
 
