@@ -2,7 +2,7 @@
 // Run from the repo root:  node tests/review.test.mjs
 // Serves the worktree on 127.0.0.1:8107 itself (reuses a server already listening there). Hermetic: the local live
 // server (:8787) is blocked, so the app always boots on simulated data.
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 import { launch, serve } from './browser.mjs';
@@ -40,7 +40,7 @@ const ALLNULL = { id: 'k03', name: 'Allnull', tag: 'Known small body', status: '
 // =====================================================================
 console.log('pure helpers (app/js/candidates/format.js)');
 {
-  const F = await import(path.join(ROOT, 'app/js/candidates/format.js'));
+  const F = await import(pathToFileURL(path.join(ROOT, 'app/js/candidates/format.js')).href); // a file URL: a bare Windows path is not an ESM specifier
   ok(F.posAt(GAPPY, 1) === GAPPY.pos[0] && F.posAt(GAPPY, 2) === null && F.posAt(GAPPY, 3) === GAPPY.pos[2], 'posAt: the scan\'s entry, null where unobserved');
   ok(F.posAt(NOPOS, 1) === null && F.posAt({ id: 'x' }, 1) === null, 'posAt: null for no positions');
   ok(F.posAt({ pos: [[1, 2], [3, 4]] }, 3)[0] === 3, 'posAt: older data with fewer entries clamps to the last');
@@ -246,7 +246,7 @@ console.log('9. labels are consistent');
   ok(labels.find(x => x[0] === FC.id)[1] === 'F', 'Field-added candidate shows "F"');
   const names = await ev(() => ({ c01: __sky.markerName('c01'), c05: __sky.markerName('c05'), k42: __sky.markerName('k42') }));
   ok(names.c01 === '2003 UB' && names.c05 === 'Probable brown dwarf' && names.k42 === 'Known', `sky markers carry the object name (${Object.values(names).join(' / ')})`);
-  const F9 = await import(path.join(ROOT, 'app/js/candidates/format.js'));
+  const F9 = await import(pathToFileURL(path.join(ROOT, 'app/js/candidates/format.js')).href);
   ok(F9.designation({ tag: 'Known small body · 16 Psyche', match: '16 Psyche' }) === '16 Psyche' && F9.designation({ tag: 'Unmatched · slow mover' }) === 'slow mover', 'designation()');
   await page.fill('#goto-in', 'candidate 42'); await page.press('#goto-in', 'Enter'); await page.waitForTimeout(200);
   ok(await ev(() => __px.get('selectedId')) === null && /No candidate 42/.test(await ev(() => document.getElementById('toast').textContent)), '"candidate 42" does not match a non-cNN id');
