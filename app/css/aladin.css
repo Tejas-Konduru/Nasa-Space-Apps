@@ -1,39 +1,20 @@
-/* "Other telescopes" panel (app/js/aladin). Uses base.css tokens; only imagery has colour. */
-#aladin-panel { position: fixed; z-index: 5; left: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + var(--bottom-h, 70px) + 26px); display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 8px; pointer-events: none; }
-#aladin-panel > * { pointer-events: auto; }
-#aladin-panel[hidden] { display: none; }
-/* Field view: no timeline at the bottom, so sit in the bottom-right corner, clear of the image readout */
-#aladin-panel[data-view="field"] { left: auto; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); align-items: flex-end; }
-
-.al-toggle { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border-radius: 8px; color: var(--ink); }
-.al[data-open="true"] .al-toggle { background: var(--fill); color: var(--fill-ink); border-color: transparent; }
-
-.al-box { width: min(380px, calc(100vw - 32px)); border-radius: 10px; padding: 10px; display: grid; gap: 8px; color: var(--ink); }
-.al-box[hidden] { display: none; }
-.al-head { display: flex; align-items: center; gap: 8px; }
-.al-head b { font-weight: 600; font-size: 12px; flex: 1; }
-.al-ext { font-size: 11px; color: var(--ink-2); text-decoration: none; }
-.al-ext:hover { color: var(--ink); }
-.al-ext[aria-disabled="true"] { opacity: .4; pointer-events: none; }
-.al-surveys { width: 100%; }
-.al-surveys button { flex: 1; }
-.al-note, .al-pos { margin: 0; font-size: 11px; color: var(--ink-2); line-height: 1.4; }
-.al-pos { font-variant-numeric: tabular-nums; color: var(--ink-3); }
-
-.al-view { position: relative; width: 100%; aspect-ratio: 1; border-radius: 6px; overflow: hidden; background: #000; }
-.al-aladin { position: absolute; inset: 0; }
-.al-msg { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 20px; text-align: center; color: #9a9a9a; font-size: 12px; line-height: 1.5; background: #000; }
-.al-msg[hidden] { display: none; }
-.al-msg button { color: #f2f2f2; border-color: rgba(255,255,255,.25); }
-
-.al-cats { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; color: var(--ink-2); }
-.al-cats span { margin-right: 2px; }
-.al-cats button { padding: 5px 8px; font-size: 11px; }
-
-@media (max-width: 860px) {
-  #aladin-panel, #aladin-panel[data-view="field"] { left: 12px; right: 12px; align-items: stretch; }
-  .al-toggle { align-self: flex-start; }
-  #aladin-panel[data-view="field"] .al-toggle { align-self: flex-end; }
-  .al-box { width: 100%; }
-  .al-view { aspect-ratio: auto; height: min(52vh, 360px); }
-}
+/* "Other telescopes" chips in the Field view's vetting section (app/js/aladin). Uses base.css tokens; only imagery has colour. */
+.ot { margin-top: 12px; display: grid; gap: 8px; }
+.ot[hidden] { display: none; }
+.ot-head { display: flex; align-items: baseline; gap: 8px; color: var(--ink-3); }
+.ot-head span { flex: 1; }
+.ot-ext { font-size: 11px; color: var(--ink-2); text-decoration: none; }
+.ot-ext:hover { color: var(--ink); }
+.ot-ext[hidden] { display: none; }
+.ot-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ot-chips button { display: inline-flex; align-items: baseline; gap: 5px; border-radius: 999px; padding: 5px 10px; font-size: 11.5px; }
+.ot-chips small { font-size: 10.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.ot-chips button[aria-pressed="true"] small { color: inherit; opacity: .7; }
+.ot-view { position: relative; width: 100%; aspect-ratio: 1; border-radius: 6px; overflow: hidden; border: 1px solid var(--edge); background: #000; }
+.ot-view[hidden] { display: none; }
+.ot-aladin { position: absolute; inset: 0; }
+.ot-msg { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 16px; text-align: center; color: #9a9a9a; font-size: 12px; line-height: 1.5; background: #000; }
+.ot-msg[hidden] { display: none; }
+.ot-msg button { color: #f2f2f2; border-color: rgba(255,255,255,.25); }
+.ot-pos { margin: 0; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.ot-pos[hidden] { display: none; }
