@@ -309,11 +309,15 @@ async function snapshotField({ ra, dec, sizeArcsec, det, t, signal, fallback }) 
 
 /**
  * @param {{ra:number, dec:number, sizeArcsec?:number, det?:number, t?:number, known?:boolean, signal?:AbortSignal, fallback?:boolean}} q
- *   ra/dec in degrees; det = SPHEREx detector 1–6; t = MJD to anchor the frame choice on (e.g. the night an asteroid
- *   passed); known=false skips JPL (much faster cold); fallback=false throws instead of returning a simulated field.
+ *   ra/dec in degrees (required in live and snapshot modes; the simulation picks its own centre without them); det =
+ *   SPHEREx detector 1–6; t = MJD to anchor the frame choice on (e.g. the night an asteroid passed); known=false skips
+ *   JPL (much faster cold); fallback=false throws instead of returning a simulated field.
  * @returns {Promise<import('../core/types.js').Field>}
  */
 export async function getField({ ra, dec, sizeArcsec = HOME.sizeArcsec, det, t, known = true, signal, fallback = true } = {}) {
+  // a missing position is a caller's mistake (store.field null, ISS-25), not a data failure: say so here rather than ask the
+  // server for ra=undefined or let the fallback dress it up as a simulated field
+  if (mode !== 'sim' && !(Number.isFinite(ra) && Number.isFinite(dec))) throw new Error('Field request needs ra and dec');
   if (mode === 'snapshot') return snapshotField({ ra, dec, sizeArcsec, det, t, signal, fallback });
   if (mode !== 'live') return simField(ra, dec);
   const qs = new URLSearchParams({ ra: String(ra), dec: String(dec), size: String(liveSize(sizeArcsec)) });

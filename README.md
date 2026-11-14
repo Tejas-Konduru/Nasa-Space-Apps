@@ -72,9 +72,10 @@ Try the built-in targets: in the Field view, open **Examples** and pick one. The
 |---|---|
 | 16 Psyche · 16 Feb 2026 | Three 1.85 µm frames; Psyche flagged *Known object*, 1.3″ from the JPL ephemeris, in the Feb 2026 frame only |
 | Barnard's Star | *Known object* from Gaia DR3 proper motion (10.4″/yr, about 1.7 px a year); press **Play** to watch it drift |
-| Epsilon Indi Ba/Bb | Brown-dwarf pair, 4.7″/yr, not in Gaia; under a pixel between adjacent passes, so compare first and last |
+| Epsilon Indi Ba/Bb | Brown-dwarf pair, 4.7″/yr; Gaia DR3 sees it as one faint source (G 18.0), so it is a *Known object* by name; under a pixel between adjacent passes, so compare first and last |
 | WISE 0855−0714 | The coldest known brown dwarf, 8″/yr but very faint: SPHEREx may show nothing, and that is the honest answer |
-| RW Aurigae, R Draconis | Variable stars: *Variable* flags tied to their Gaia DR3 entries, no motion |
+| RW Aurigae | Variable young star: *Variable* flags tied to its Gaia DR3 entry, no motion |
+| R Draconis | Mira variable, but at G 6.4 it saturates SPHEREx: pipeline artifact flags (TRANSIENT, SUR_ERROR, OVERFLOW) on its core, rejected as artifacts, and no *Variable* flag |
 
 First load of a field takes ~10 s for the frames plus 1–2 min for the JPL known-object check (the frames and Gaia stars appear first); afterwards it is instant from `server/.cache/`.
 
