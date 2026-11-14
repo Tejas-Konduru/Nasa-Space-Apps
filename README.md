@@ -6,9 +6,9 @@ SPHEREx re-maps the whole sky every six months. A far-off planet barely shifts b
 
 Enter a position (or pick one of the built-in targets), and the app loads every SPHEREx pass of that patch at a matching wavelength, plays them like a little video, blinks or subtracts any two, overlays Gaia stars and the SPHEREx pipeline's own bad-pixel flags, and names what it recognises.
 
-**Live demo:** https://shengdynasty.github.io/planet-x/ (simulated data; real SPHEREx data needs the local server below)
+**Live demo:** https://shengdynasty.github.io/planet-x/ (real SPHEREx data for the six built-in targets, saved in the repo; any other position needs the local server below)
 
-> **Status:** hackathon prototype. Without the local data server, everything shown is simulated and labelled as such.
+> **Status:** hackathon prototype. The badge in the top bar always says what you are looking at: **Live · SPHEREx** (the local server fetches any position from IRSA), **Saved SPHEREx data** (real frames, known objects and Gaia stars for the six example targets, saved in `app/data/snapshots/` on the date in the badge's tooltip), or **Simulated data** (placeholder scans and movers, labelled as such).
 
 ## What's here
 
@@ -24,12 +24,12 @@ Enter a position (or pick one of the built-in targets), and the app loads every 
 
 ```sh
 python3 -m http.server 8000 --bind 127.0.0.1   # from the repo root
-open http://localhost:8000/                     # homepage; "Open the sky" → /app/ (simulated data)
+open http://localhost:8000/                     # homepage; "Open the sky" → /app/ (saved SPHEREx data for the six example targets)
 
-node server/index.mjs                           # optional: live SPHEREx data on :8787
+node server/index.mjs                           # optional: live SPHEREx data for any position on :8787
 ```
 
-With the server running, the badge in the top bar switches from **Simulated data** to **Live · SPHEREx**. First loads of a field take ~10 s (about a minute when JPL is also checked); results are cached in `server/.cache/`.
+With the server running, the badge in the top bar switches from **Saved SPHEREx data** to **Live · SPHEREx**. First loads of a field take ~10 s (about a minute when JPL is also checked); results are cached in `server/.cache/`. Add `?data=sim` to the app URL to see the simulation instead.
 
 ## For the team
 
@@ -64,7 +64,7 @@ node server/index.mjs
 python3 -m http.server 8000 --bind 127.0.0.1
 ```
 
-Open http://localhost:8000/app/. The badge top right should read **Live · SPHEREx** within two seconds. If it says *Simulated data*, the server isn't running on port 8787, or IRSA is down (check http://localhost:8787/api/health).
+Open http://localhost:8000/app/. The badge top right should read **Live · SPHEREx** within two seconds. If it says *Saved SPHEREx data*, the server isn't running on port 8787, or IRSA is down (check http://localhost:8787/api/health), and the app is showing the saved example fields instead (see below).
 
 Try the built-in targets: in the Field view, open **Examples** and pick one. They are 16 Psyche (the asteroid test case) and the five objects the challenge brief names:
 
@@ -81,6 +81,17 @@ First load of a field takes ~10 s for the frames plus 1–2 min for the JPL know
 Three overlays sit above the image: **Flags** (what the pipeline found), **Known objects** (JPL ephemerides and Gaia high-proper-motion stars), **Gaia stars** (every Gaia DR3 star with G < 19 at the frame time) and **Bad pixels** (the SPHEREx pipeline's own FLAGS plane: red = bad, amber = contaminated). **Play** cycles through every pass at the reference wavelength like a little video.
 
 Any field can be shared or embedded by URL: `/app/?ra=269.4463&dec=4.7682&size=300&det=1` opens straight on Barnard's Star (RA/Dec in degrees or `08h55m10.8s`/`-07d14m42.5s`; `size` 40–600 arcsec, clamped if outside; `det` 1–6; optional `t` as MJD or `2026-02-16`). The address bar updates as you move, so copying it is enough.
+
+#### Saved snapshots (what the hosted copy shows)
+
+`app/data/snapshots/` holds the server's answer for each of the six example targets (about 100 KB each: the frames, the SPHEREx flag planes, JPL's known objects and the Gaia stars, with the IRSA file behind every frame) plus `index.json` (when they were saved, the home patch's survey scans for the timeline, and the known objects as review-panel entries). When no server answers, the app loads these and the badge reads **Saved SPHEREx data**: the Examples menu and any position inside one of those fields show the real data, analysed in the browser as in live mode; anything else falls back to the simulation and says so. To refresh them after the server has new passes:
+
+```sh
+node server/index.mjs                 # terminal 1
+node scripts/save-snapshots.mjs       # terminal 2: rewrites app/data/snapshots/ (refuses a field whose JPL or Gaia lookup failed)
+```
+
+Then commit the files; `main` deploys to GitHub Pages. `?data=sim` on the app URL skips both the server and the snapshots.
 
 ### 3. The Python backend
 

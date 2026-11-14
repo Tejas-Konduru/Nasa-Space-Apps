@@ -130,7 +130,7 @@ During testing, IRSA's `spherex_dr1` SIA endpoint answered **HTTP 502 on about h
 | ISS-24 | Size limits disagree: server accepts `size` 20 to 600 but clamps to ≥ 40 (N ≥ 8); the deep link accepts 20 to 3000; the Live request box offers 120/300/600 only | `server/index.mjs`, `lib/field.mjs:128`, `main.js:23` |
 | ISS-25 | Opening Field in live mode with `store.field` null requests `ra=undefined` ("Live field failed (Bad parameter ra=undefined)") | Reachable only through the store, not the UI, because the Field tab always sets a field first |
 | ISS-27 | On phones the "Planet X" title link is 51×16 px, below a comfortable touch target | Measured at 390 px |
-| ISS-26 | Live mode's panel is empty by default (0 movers in the home patch); the message is clear, but the demo opens with nothing to review | `/api/candidates` returns `[]` for the home patch |
+| ISS-26 | Live mode's panel is empty by default (0 movers in the home patch); the message is clear, but the demo opens with nothing to review. _Snapshot mode (no server; the hosted copy) opens with the known objects of the six saved example fields, 16 Psyche first (2026-11-14); live mode is unchanged._ | `/api/candidates` returns `[]` for the home patch |
 
 ---
 

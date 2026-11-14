@@ -22,6 +22,7 @@ async function open({ width = 1280, height = 800 } = {}) {
   page.on('console', m => { if (m.type() === 'error' && !benign(m.text())) errors.push(m.text()); });
   page.on('pageerror', e => errors.push('[pageerror] ' + e.message));
   await page.route(/(localhost|127\.0\.0\.1):8787/, r => r.abort());
+  await page.route(/\/data\/snapshots\//, r => r.fulfill({ status: 200, contentType: 'application/json', body: '{"targets":[],"note":"blocked by test"}' })); // no saved fields either: simulation
   await page.goto(URL_);
   await page.waitForFunction(() => document.documentElement.dataset.ready === 'true', null, { timeout: 30000 });
   await page.waitForFunction(() => window.__sky, null, { timeout: 20000 });

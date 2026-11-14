@@ -56,6 +56,9 @@ Cache: `server/.cache/` (or `PLANETX_CACHE`): `sia/` searches (7 days), `hdr/` h
 cutouts, `jpl/` sb_ident answers, `horizons/` Horizons answers, `field/` finished fields, `cands/` panel lists. Roughly 5 MB per
 cutout, so a few hundred MB after a dozen fields. Delete the folder to start fresh.
 
+Snapshots: `node scripts/save-snapshots.mjs` (with this server running) saves `/api/field` for the six example targets into
+`app/data/snapshots/`, which the app shows as **Saved SPHEREx data** when no server answers (the hosted copy).
+
 Run `node tests/live.test.mjs` with the server up for the browser end-to-end check (home field, 16 Psyche,
 loading + Cancel). `PLANETX_SERVER=http://localhost:8788` points it, and the app, at another port.
 
