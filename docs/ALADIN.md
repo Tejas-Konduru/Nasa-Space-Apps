@@ -14,9 +14,14 @@ in white. Press the lit chip again to close it. "Open in Aladin ↗" opens the s
 
 ## Licence: Aladin Lite is not in this repo
 
-Aladin Lite (CDS, Strasbourg) is GPL-3.0. Nothing from it is copied into this repository: `app/js/aladin/index.js` adds a
-`<script>` tag for `https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js` the first time a chip is pressed,
-the same way the app loads three.js from cdnjs. `tests/aladin.test.mjs` fails if Aladin library files ever appear in the repo.
+Aladin Lite (CDS, Strasbourg) is GPL-3.0. Nothing from it is copied into this repository. The first time a chip is pressed,
+`app/js/aladin/index.js` fetches it at runtime, the same way the app loads three.js from cdnjs, trying in order:
+
+1. the official npm package, pinned (`aladin-lite@3.8.2`), as an ES module from jsDelivr;
+2. the CDS-hosted script `https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js` (this returned 404 on
+   13 Nov 2026, which is why the npm build comes first).
+
+To move to a newer release, change `ALADIN_VERSION` in `app/js/aladin/index.js` (check `npm view aladin-lite versions`). `tests/aladin.test.mjs` fails if Aladin library files ever appear in the repo.
 If the CDN can't be reached (claude.ai sandbox, offline, ad blocker), the viewer says so with a "Try again" button and the
 rest of the Field view is unaffected.
 
