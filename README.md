@@ -150,4 +150,5 @@ node qa/moving-sky.test.mjs                         # Moving Sky demo           
 
 - Sky imagery: NASA/Goddard Space Flight Center Scientific Visualization Studio, *Deep Star Maps 2020*. Gaia DR2: ESA/Gaia/DPAC.
 - Data: SPHEREx via NASA/IPAC Infrared Science Archive (IRSA); JPL Small-Body Identification and Horizons.
+- AI assistance: the code, tests and documentation in this repository were written with Claude (Anthropic) as a coding assistant, working from the team's direction and reviewed, run and verified by the team. The science choices, data sources, test results and conclusions are the team's.
 - Team: [Team member names]
