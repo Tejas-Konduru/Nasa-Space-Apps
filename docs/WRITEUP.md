@@ -76,7 +76,7 @@ A standalone technical demo, now in the app's black, white and grey palette, tha
 - **Wavelength matching shrinks the usable data.** Fewer epoch pairs are usable per patch, and frames from different epochs are matched to within half a resolution element, not exactly.
 - **Faint signals.** A distant planet would sit near the detection threshold. The 5σ cut trades sensitivity for reliability.
 - **Small fields.** Live fields are 120–600″ (20–98 pixels across), so fast movers leave the cutout between scans, and the search covers chosen patches, not the whole sky.
-- **Simplified measurements.** Frames are surface brightness after zodiacal-light subtraction, with no flux calibration, no PSF photometry and no use of the per-pixel quality flags. Bilinear resampling is good enough for blinking and differencing, not for precise astrometry.
+- **Simplified measurements.** Frames are surface brightness after zodiacal-light subtraction, with no flux calibration and no PSF photometry; brightness changes are judged on 5×5 aperture flux relative to the field's other stars, because SPHEREx's one-pixel PSF makes peak values depend on sub-pixel position. Bilinear resampling is good enough for blinking and differencing, not for precise astrometry.
 - **Lightly tested on real data.** Thresholds were set on the simulated field and checked on two real fields: the app's home patch and the 16 Psyche test. They have not been validated at scale.
 - **Slow first requests.** A new field takes about 10 seconds, or a few minutes when JPL is checked; everything is cached afterwards.
 
@@ -86,7 +86,7 @@ A standalone technical demo, now in the app's black, white and grey palette, tha
 2. Measure the false-positive rate by injecting synthetic movers into real frames.
 3. Add multi-epoch linking and a basic orbit fit once three or more matched-wavelength epochs are available.
 4. Extract real spectra from the SPHEREx frames for vetting.
-5. Use the per-pixel quality flags and proper photometry.
+5. Proper PSF photometry and flux calibration, so brightness changes can be measured, not just flagged.
 6. Host the data server so the public demo can show live data, not just the simulation.
 
 ## Team

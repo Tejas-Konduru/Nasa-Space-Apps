@@ -79,6 +79,10 @@ Live `Field`s carry three things the simulation doesn't (all optional; the pipel
   (ghost, persistence, halo) to the detail. `epochs[].flagged` is the fraction of flagged pixels.
 - `field.stars[]` — Gaia DR3 sources with G < 19: `{id, name, g, rp, pm, pos(t) → [x, y]}`, proper motion propagated from
   J2016.0 by `toField`. A new or vanished source on a Gaia star is variability (`var`), never a mover.
+- On real frames the PSF is under-sampled (σ < 1 px), so a star's peak pixel changes by ×2–3 with its sub-pixel position
+  alone. Variability there is judged on 5×5 aperture flux above the local sky (`detect.js apFlux`), relative to the
+  median flux ratio of the field's other matched stars, and never on the peak; blends (a brighter source within 3 px)
+  are never called variable. The simulation (σ = 1.15 px) keeps Moving Sky's peak-ratio test, so parity holds.
 - `field.known[]` entries have `kind: 'sb' | 'star'`; stars moving faster than 1″/yr come from Gaia with `source: 'Gaia DR3
   proper motion'` and `pmArcsecYr`. A known mover whose shift is below the 2.2 px pairing radius is still reported
   (`kind: 'known'`, from the predicted positions, or `predicted: true` when nothing clean sits there).

@@ -92,6 +92,32 @@ export function psfMisfit(img, s, sigma) {
 }
 const MISFIT_MAX = 0.15, MISFIT_MIN_SNR = 30, CLUSTER_PX = 4;
 
+// ---------- aperture photometry for the variability test ----------
+// On an under-sampled PSF (real SPHEREx frames: FWHM ≈ 1 px after resampling) the peak pixel depends on where the
+// star falls within the pixel, so the same star differs by ×2–3 in peak between two frames with no change in flux
+// (issues.md ISS-01: 11 of 13 "Brightness change" flags on real fields were such sampling artefacts). Below
+// UNDERSAMPLED_SIGMA the variability test therefore uses the flux in a 5×5 box above the local sky (median of the
+// surrounding 9×9 ring), normalised by the median flux ratio of the field's other matched stars, which cancels a
+// zero-point or colour offset between the two passes. A star within 3 px of a brighter one is a blend and is never
+// called variable. The simulation's σ = 1.15 px PSF keeps Moving Sky's peak-ratio test, so its results stay identical.
+export const UNDERSAMPLED_SIGMA = 1.0;
+export const AP_RATIO = 1.5;  // flux must change by more than ×1.5 either way…
+export const AP_SIGMAS = 5;   // …by more than 5× the aperture noise of the difference…
+export const AP_SNR = 10;     // …and the brighter measurement must be a 10σ aperture detection
+const AP_R = 2, AP_SKY_R = 4;
+/** 5×5 aperture flux above the local sky at the rounded position, and the aperture's noise (√n · σ). */
+export function apFlux(img, x, y) {
+  const N = sideOf(img), { med, sig } = stats(img), x0 = Math.round(x), y0 = Math.round(y), ring = [];
+  let sum = 0, n = 0;
+  for (let dy = -AP_SKY_R; dy <= AP_SKY_R; dy++) for (let dx = -AP_SKY_R; dx <= AP_SKY_R; dx++) {
+    const xx = x0 + dx, yy = y0 + dy; if (xx < 0 || yy < 0 || xx >= N || yy >= N) continue; const v = img[yy * N + xx];
+    if (Math.max(Math.abs(dx), Math.abs(dy)) <= AP_R) { sum += v; n++; } else ring.push(v); }
+  ring.sort((p, q) => p - q);
+  const sky = ring.length ? ring[ring.length >> 1] : med;
+  return { flux: sum - n * sky, noise: Math.sqrt(Math.max(n, 1)) * sig };
+}
+const fmtRatio = r => r >= 100 ? '>100' : r < 0.01 ? '<0.01' : r.toFixed(2);
+
 export const KIND_ORDER = { cand: 0, known: 1, var: 2, art: 3, left: 4 };
 const analyseCache = new WeakMap();
 
@@ -125,14 +151,31 @@ function analyseUncached(field, ia, ib) {
   const starAt = (t, p) => { let best = null, bd = 1.5; for (const s of STARS) { const [x, y] = s.pos(t); const d = Math.hypot(x - p.x, y - p.y); if (d < bd) { bd = d; best = s; } } return best; };
   const starTxt = s => `${s.name} (G ${s.g.toFixed(1)})`;
   const knownAt = (t, p) => { for (const k of KNOWN) { const q = k.pos(t); if (!q) continue; const [x, y] = q; if (Math.hypot(x - p.x, y - p.y) < 3) return k; } return null; };
+  // Variability on an under-sampled PSF is judged on aperture flux (see apFlux), relative to the field's other stars.
+  const psf = psfModel(field), under = psf.sigma < UNDERSAMPLED_SIGMA;
+  let zp = 1;
+  if (under) { const rs = [];
+    for (const b of B) { if (b.peak < 12 * sig) continue; const [a, d] = nearest(Alo.filter(q => q.peak > 0.35 * b.peak), b);
+      if (!a || d >= 2.2 || a.peak < 12 * sig || (KNOWN.length && knownAt(tb, b)) || hardFlags(ib, b).length || hardFlags(ia, a).length) continue;
+      const x = (a.x + b.x) / 2, y = (a.y + b.y) / 2, Fa = apFlux(fa, x, y), Fb = apFlux(fb, x, y);
+      if (Fa.flux > AP_SNR * Fa.noise && Fb.flux > AP_SNR * Fb.noise) rs.push(Fb.flux / Fa.flux); }
+    rs.sort((p, q) => p - q); if (rs.length >= 3) zp = Math.min(2, Math.max(0.5, rs[rs.length >> 1])); }
+  const blended = p => [...A, ...B].some(q => q.peak > 1.5 * p.peak && dist(q, p) > 0.01 && dist(q, p) < 3);
+  const change = (pa, pb) => { const x = (pa.x + pb.x) / 2, y = (pa.y + pb.y) / 2, Fa = apFlux(fa, x, y), Fb = apFlux(fb, x, y);
+    const ratio = Fb.flux / Math.max(Fa.flux, Fa.noise) / zp, diff = Fb.flux - zp * Fa.flux, noise = Math.hypot(Fb.noise, zp * Fa.noise);
+    const varies = Math.max(Fa.flux, Fb.flux / zp) > AP_SNR * Math.max(Fa.noise, Fb.noise) && (ratio > AP_RATIO || ratio < 1 / AP_RATIO) && Math.abs(diff) > AP_SIGMAS * noise;
+    return { ratio, varies, txt: `×${fmtRatio(ratio)} in flux (5×5 aperture, relative to the field's other stars)` }; };
+  const dupVar = p => res.some(r => r.kind === 'var' && Math.hypot(r.x - p.x, r.y - p.y) < 2);   // one flag per star
   for (const b of B) { const [a, d] = nearest(Alo.filter(q => q.peak > 0.35 * b.peak), b);
-    if (a && d < 2.2) { const ratio = b.peak / a.peak;
-      if ((ratio > 1.8 || ratio < 0.55) && Math.min(a.peak, b.peak) > 12 * sig) {
+    if (a && d < 2.2) { const ratio = b.peak / a.peak, c = under ? change(a, b) : null;
+      const varies = c ? c.varies && !blended(b) : (ratio > 1.8 || ratio < 0.55) && Math.min(a.peak, b.peak) > 12 * sig;
+      if (varies) {
         if (KNOWN.length && knownAt(tb, b)) continue;                                     // a known mover's own pixels: reported as 'known' below
         const hf = [...new Set([...hardFlags(ib, b), ...hardFlags(ia, a)])];              // saturated core or bad pixel: the ratio means nothing
         if (hf.length) { res.push({ kind: 'art', title: 'Flagged by the SPHEREx pipeline', x: b.x, y: b.y, from: a, to: b, detail: `Brightness change on a pixel the L2 pipeline marks bad (${hf.join(', ')}): not trustworthy` }); continue; }
+        if (dupVar(b)) continue;
         const s = STARS.length ? starAt(tb, b) : null;
-        res.push({ kind: 'var', title: 'Brightness change, fixed position', x: b.x, y: b.y, from: a, to: b, star: s, detail: `×${ratio.toFixed(2)} in peak, no motion` + (s ? ` · ${starTxt(s)}` : '') + softTxt(ib, b) }); }
+        res.push({ kind: 'var', title: 'Brightness change, fixed position', x: b.x, y: b.y, from: a, to: b, star: s, detail: `${c ? c.txt : `×${ratio.toFixed(2)} in peak`}, no motion` + (s ? ` · ${starTxt(s)}` : '') + softTxt(ib, b) }); }
     } else if (b.peak > FIRM) appeared.push(b); }
   for (const a of A) { if (a.peak <= FIRM) continue; const [b, d] = nearest(Blo.filter(q => q.peak > 0.35 * a.peak), a); if (!(b && d < 2.2)) vanished.push(a); }
   const inside = q => q && q[0] >= 0 && q[1] >= 0 && q[0] < N && q[1] < N;
@@ -141,7 +184,6 @@ function analyseUncached(field, ia, ib) {
   // Artifact test, PSF-aware: too sharp for this field's PSF (spike), or a bright blob that fails a PSF fit
   // (cosmic-ray streak, bad pixels); a source within a few pixels of such a hit is an artifact too, whether the hit
   // is in the same frame (CR shower) or in the other one (the counterpart is hidden under it).
-  const psf = psfModel(field);
   const hardOf = img => { const why = new Map();
     for (const s of detect(img, 5)) { if (s.spike > psf.spikeMax) why.set(s, 'spike'); else if (s.peak > MISFIT_MIN_SNR * s.sig && Math.min(...[1, 1.5, 2].map(f => psfMisfit(img, s, f * psf.sigma))) > MISFIT_MAX) why.set(s, 'shape'); } // broader than the PSF is fine (galaxy, blend)
     return why; };
@@ -160,7 +202,11 @@ function analyseUncached(field, ia, ib) {
     if (!k && why === 'spike') { res.push({ kind: 'art', title: 'Single-pixel spike', x: b.x, y: b.y, to: b, detail: 'Not PSF-shaped: cosmic ray or hot pixel' }); continue; }
     if (!k && why) { res.push({ kind: 'art', title: ART_TXT[why][0], x: b.x, y: b.y, to: b, detail: ART_TXT[why][1] }); continue; }
     const s = !k && STARS.length ? starAt(tb, b) : null;
-    if (s) { res.push({ kind: 'var', title: 'Brightened star', x: b.x, y: b.y, to: b, star: s, detail: `Appeared at ${starTxt(s)}, below detection in the reference: a brightening, not a mover` + softTxt(ib, b) }); continue; }
+    if (s) { // a Gaia star that is now detected and wasn't: a brightening only if its aperture flux really rose
+      const c = under ? change(b, b) : null;
+      if (c && (!c.varies || c.ratio < 1 || blended(b))) continue;                     // same flux, the 5σ detection just toggled (sampling, blend)
+      if (dupVar(b)) continue;
+      res.push({ kind: 'var', title: 'Brightened star', x: b.x, y: b.y, to: b, star: s, detail: `Appeared at ${starTxt(s)}, below detection in the reference${c ? `: ${c.txt}` : ''}; a brightening, not a mover` + softTxt(ib, b) }); continue; }
     const [v, dv] = partner(b);
     const rate = v ? dv * SCALE / dt : null;
     if (k) { if (v) usedV.add(v); res.push({ kind: 'known', title: k.name, x: b.x, y: b.y, from: v, to: b, obj: k, detail: (v ? `Moved ${(dv * SCALE).toFixed(0)}″ in ${fmtDt(dt)} — matches ephemeris` : 'Matches ephemeris') + offTxt(k, tb, b) }); continue; }
@@ -175,7 +221,11 @@ function analyseUncached(field, ia, ib) {
     if (!k && why === 'spike') { res.push({ kind: 'art', title: 'Single-pixel spike in reference', x: v.x, y: v.y, from: v, detail: 'Not PSF-shaped: cosmic ray or hot pixel' }); continue; }
     if (!k && why) { res.push({ kind: 'art', title: ART_TXT[why][0] + (why === 'masked' ? '' : ' in reference'), x: v.x, y: v.y, from: v, detail: ART_TXT[why][1] }); continue; }
     const s = !k && STARS.length ? starAt(ta, v) : null;
-    if (s) { res.push({ kind: 'var', title: 'Faded star', x: v.x, y: v.y, from: v, star: s, detail: `${starTxt(s)} dropped below detection in the comparison frame: fading, not motion` }); continue; }
+    if (s) { // a Gaia star no longer detected: a fading only if its aperture flux really fell
+      const c = under ? change(v, v) : null;
+      if (c && (!c.varies || c.ratio > 1 || blended(v))) continue;                     // same flux, the 5σ detection just toggled (sampling, blend)
+      if (dupVar(v)) continue;
+      res.push({ kind: 'var', title: 'Faded star', x: v.x, y: v.y, from: v, star: s, detail: `${starTxt(s)} dropped below detection in the comparison frame${c ? `: ${c.txt}` : ''}; fading, not motion` }); continue; }
     res.push({ kind: 'left', title: k ? `${k.name} — left the cutout` : 'Source vanished', x: v.x, y: v.y, from: v, detail: k ? 'Ephemeris puts it outside this field now' : 'Faded or moved out of field' }); }
   // Known movers whose shift is below the pairing threshold (a high-proper-motion star at ~1 px/yr) never appear or
   // vanish, so they would go unreported; name them when a source sits at the predicted position in both frames.

@@ -166,6 +166,8 @@ ok(Math.abs(P.sigmaOfSpike(P.spikeOf(0.68)) - 0.68) < 1e-6 && P.spikeLimit(0.68)
   ok(r01.filter(q => q.kind === 'art' && /Flagged by the SPHEREx pipeline/.test(q.title)).length >= 5, 'cosmic-ray hits in the Feb 2026 frame now rejected by the pipeline FLAGS');
   ok(r01.filter(q => q.kind === 'var').every(q => /Gaia DR3/.test(q.detail)), 'brightness changes are tied to Gaia stars');
   ok(!r01.some(q => q.kind === 'cand'), 'no candidates left in the Psyche pair: ' + JSON.stringify(r01.filter(q => q.kind === 'cand').map(q => q.title)));
+  // ISS-01: the Psyche field's "Brightness change" flags were peak-sampling artefacts (5×5 flux ratios 0.94–1.07)
+  ok(!r01.some(q => q.kind === 'var') && !P.analyse(psy, 0, 2).some(q => q.kind === 'var'), 'no false variables in the Psyche pairs: ' + JSON.stringify(r01.filter(q => q.kind === 'var').map(q => q.detail)));
   const bar = toField(JSON.parse(fs.readFileSync(path.join(here, 'fixtures/spherex-barnard-field.json'), 'utf8')));
   const star = bar.known.find(k => /Barnard/.test(k.name));
   ok(star && star.kind === 'star' && star.pmArcsecYr > 10 && Math.hypot(...[0, 1].map(i => star.pos(bar.epochs[2].t)[i] - star.pos(0)[i])) > 1.5, "Barnard's Star is a known high-proper-motion star moving > 1.5 px over the year");
@@ -173,7 +175,35 @@ ok(Math.abs(P.sigmaOfSpike(P.spikeOf(0.68)) - 0.68) < 1e-6 && P.spikeLimit(0.68)
     const res = P.analyse(bar, a, b), k = res.find(q => /Barnard/.test(q.title));
     ok(k && k.kind === 'known' && /matches proper motion/.test(k.detail), `Barnard's Star reported as a known mover in pair ${a},${b} (${k && k.detail})`);
     ok(!res.some(q => q.kind === 'left' || q.kind === 'cand'), `no "left" or candidate in pair ${a},${b}: ` + JSON.stringify(res.filter(q => q.kind === 'left' || q.kind === 'cand').map(q => q.title)));
+    // ISS-01/07: a G 13.0 star at ×0.48 in peak but ×0.97 in flux, and a blended G 15.6 star whose flux rose while its
+    // 5σ detection toggled off, used to be reported as variable / faded
+    ok(!res.some(q => q.kind === 'var'), `no false variables in pair ${a},${b}: ` + JSON.stringify(res.filter(q => q.kind === 'var').map(q => q.title + ' ' + q.detail)));
   }
+}
+
+// 13. ISS-01: on an under-sampled PSF the peak depends on where a star falls in its pixel, so variability is judged on
+//     5×5 aperture flux relative to the field's other stars. A star that merely shifts within its pixel is not
+//     variable; one whose flux doubles is, and the detail says so in flux.
+{
+  const N = 48, S = 0.55, r = P.rng(13), stars = [];
+  while (stars.length < 12) { const s = { x: 5 + r() * 38, y: 5 + r() * 38, a: 4 + 30 * r() }; if (Math.hypot(s.x - 12, s.y - 36) > 7 && Math.hypot(s.x - 36, s.y - 12) > 7) stars.push(s); }
+  const psf = (g, x, y, a) => { for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const X = Math.round(x) + dx, Y = Math.round(y) + dy; if (X < 0 || Y < 0 || X >= N || Y >= N) continue;
+    g[Y * N + X] += a * Math.exp(-((X - x) ** 2 + (Y - y) ** 2) / (2 * S * S)); } };
+  const mk = i => { const q = P.rng(500 + i), g = new Float32Array(N * N); for (let p = 0; p < N * N; p++) g[p] = 0.5 + 0.02 * P.gauss(q);
+    for (const s of stars) psf(g, s.x, s.y, s.a);
+    psf(g, i ? 12.55 : 12, i ? 36.55 : 36, 20);         // same flux, 0.55 px over in both axes: the peak halves
+    psf(g, 36, 12, i ? 24 : 11);                         // fixed position, flux ×2.2: a real variable
+    return g; };
+  const frames = [mk(0), mk(1)];
+  const f = { N, scale: 6.15, ra0: 10, dec0: 5, psfSigmaPx: S, epochs: [0, 180].map(t => ({ t, band: 1.02, label: t + ' d', sub: '' })), frame: i => frames[i], known: [], stars: [], simulated: false };
+  const res = P.analyse(f, 0, 1), at = (x, y) => res.find(q => Math.hypot(q.x - x, q.y - y) < 1.5);
+  const a0 = P.detect(frames[0], 5).find(s => Math.hypot(s.x - 12, s.y - 36) < 1), b0 = P.detect(frames[1], 5).find(s => Math.hypot(s.x - 12.55, s.y - 36.55) < 1);
+  ok(a0 && b0 && b0.peak / a0.peak < 0.55, `a sub-pixel shift alone changes the peak by ×${a0 && b0 ? (b0.peak / a0.peak).toFixed(2) : '?'} (the old peak test flagged that)`);
+  ok(!at(12.3, 36.3), 'a star that only moved within its pixel is not called variable: ' + JSON.stringify(res.map(q => q.kind + ':' + q.title)));
+  const v = at(36, 12);
+  ok(v && v.kind === 'var' && /in flux/.test(v.detail) && /×2\.[0-4]/.test(v.detail), 'a star whose flux doubled is variable, judged on aperture flux: ' + (v && v.detail));
+  ok(P.apFlux(frames[1], 36, 12).flux / P.apFlux(frames[0], 36, 12).flux > 2 && res.filter(q => q.kind === 'var').length === 1, 'exactly one variable in the pair');
+  ok(P.UNDERSAMPLED_SIGMA > P.LIVE_PSF_SIGMA && P.UNDERSAMPLED_SIGMA < P.SIM_PSF_SIGMA, 'real frames use the flux test, the simulation keeps the peak test');
 }
 
 console.log(`${passes} passed, ${fails} failed`);
