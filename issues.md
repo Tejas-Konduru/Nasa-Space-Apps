@@ -76,6 +76,7 @@ During testing, IRSA's `spherex_dr1` SIA endpoint answered **HTTP 502 on about h
 - Reproduce: `GET /api/field?ra=359.9985&dec=2.0&size=300&det=1&known=0`. 5 of 9 Gaia stars get |x| > 200 px, and only 4 of the 7 that exactly belong in the frame are placed inside it. The server's own `gridPixel` is correct (it uses `sin(Δα)`).
 - Impact: for a field that straddles RA 0h/360° (roughly 1 pointing in 4,000 for a 300″ field) the *Gaia stars* overlay and the "a change at a catalogued star is variability" matching silently lose the stars on the other side of the wrap.
 - Fix: wrap `ra - ra0` into (-180°, 180°], or reuse the server's tangent-plane formula.
+- **Fixed** 2026-11-14 in PR #6 (Tejas): `toField` wraps RA into (−180°, 180°].
 
 **ISS-06: The Help sheet and STATUS.md advertise review features that were removed.**
 `app/index.html:80`: "Movers panel: review candidates. Filter, sort, **mark them follow-up or rejected, and add notes**." Commits `5ce9599` and `a696c43` removed the buttons and the note box. `Follow-up`/`Rejected`, `USER_STATUSES`, and the Rejected sort order remain as dead code in `candidates/format.js`, and STATUS.md still lists "Follow-up/Rejected review with notes (localStorage)" as done.
@@ -105,6 +106,7 @@ During testing, IRSA's `spherex_dr1` SIA endpoint answered **HTTP 502 on about h
 `compare/cutout.js` and `candidates/cutout.js` draw invented star fields and an invented mover (exaggerated up to ×6000 for slow ones). It is labelled "Illustrative cutout (simulated pixels)", but real known objects from JPL (live mode) are shown on fake pixels, and the real frames are only reachable through Field.
 - The two files use different seeds (`hash(c.id)` against `seedIndex`), so the inspector and Compare draw different star fields for the same candidate. `candidates/cutout.js` also lacks the RA-wrap fix that `compare/cutout.js` has (a track crossing 0h is pinned to the edge).
 - Fix: render the Field frames for live candidates, or at least share one generator.
+- **Fixed** 2026-11-14 in PR #6 (Tejas): one shared generator with the RA-wrap fix. Live candidates still show synthetic cutouts (the first half of this issue stays open).
 
 **ISS-11: The quality gates do not run on Windows.**
 - `tests/browser.mjs:75` spawns `python3`. On Windows that is the Store stub, so **every browser suite dies with "could not start a static server"** (README says "use `py` instead of `python3` on Windows", but the helper hard-codes it).
@@ -125,7 +127,7 @@ During testing, IRSA's `spherex_dr1` SIA endpoint answered **HTTP 502 on about h
 |---|---|---|
 | ISS-13 (fixed) | Wrong rounding in the Field/Live text: `pipeline/format.js` `fmtRA`/`fmtDec` print "60.0s" / "60″" | RA 08h55m59.97s prints `08h 55m 60.0s`; Dec −7°14′59.6″ prints `−7° 14′ 60″`. Visible in the loading box: "Dec −33° 19′ 60″" |
 | ISS-14 (fixed) | `candidates/format.js` `fmtDec(-0.04)` gives "−0.0°", while `sky/coords.js` deliberately gives "+0.0°" | Two formatters disagree |
-| ISS-15 | `radec()` / `pixel()` use a first-order tangent plane. Error against exact TAN at the corners of a 600″ field: 0.3″ at Dec 30°, 0.85″ at 60°, 2.8″ at 80°, 5.7″ at 85°, 30″ at 89° | Used for Add to review list and Show on sky positions; the server uses exact TAN |
+| ISS-15 (fixed) | `radec()` / `pixel()` use a first-order tangent plane. Error against exact TAN at the corners of a 600″ field: 0.3″ at Dec 30°, 0.85″ at 60°, 2.8″ at 80°, 5.7″ at 85°, 30″ at 89° | Used for Add to review list and Show on sky positions; the server uses exact TAN |
 | ISS-16 (fixed) | `parseCentre('12h +30d')` returns null although `parseDec('30d')` is accepted; `'08h 55m 60s, 0'` is accepted as 55m + 60 s; `'24h, 0'` becomes RA 0 | `sky/coords.js` |
 | ISS-17 | Saturated-star cores appear as holes in the Field image (masked pixels become the frame median) | Barnard's Star, section 3 |
 | ISS-18 (fixed) | The sky camera cannot look at the celestial poles: `clampPitch` (`sky/index.js:165`) stops at 1.5 rad, so go-to `0h, +90` centres on Dec ±85.9° with no message | North/south pole checks, centre Dec 85.94° |
