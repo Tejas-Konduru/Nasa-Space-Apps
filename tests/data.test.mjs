@@ -26,7 +26,7 @@ function checkScan(s) {
 }
 function checkCandidate(c) {
   for (const k of ['id', 'name', 'tag', 'status', 'band', 'note']) assert.equal(typeof c[k], 'string', k);
-  assert.ok(['Candidate', 'Matched', 'Likely', 'Rejected', 'Follow-up'].includes(c.status));
+  assert.ok(['Candidate', 'Matched', 'Likely'].includes(c.status));
   assert.equal(c.pipelineStatus, c.status);
   assert.ok(Array.isArray(c.pos) && c.pos.every(p => p.length === 2 && p.every(Number.isFinite)));
   assert.equal(typeof c.simulated, 'boolean');

@@ -254,12 +254,12 @@ console.log('9. labels are consistent');
   ok(await ev(() => __px.get('selectedId')) === null, '"candidate 7" does not pick a Field candidate named "… 7" or the 7th in the list');
   await page.fill('#goto-in', 'candidate 5'); await page.press('#goto-in', 'Enter'); await page.waitForTimeout(200);
   ok(await ev(() => __px.get('selectedId')) === 'c05', '"candidate 5" → c05');
-  // Compare scales by the pipeline status, like the panel: a reviewer's Rejected on a Matched mover changes nothing
+  // Compare scales by the pipeline status, like the panel: pipelineStatus wins over status when both are set
   const same = await ev(async () => {
     const { renderCutout } = await import('/app/js/compare/cutout.js');
     const base = { id: 'z1', pos: [[10, 20], [10.001, 20.001], [10.002, 20.002]] };
     const draw = c => { const cv = document.createElement('canvas'); cv.width = cv.height = 128; renderCutout(cv.getContext('2d'), 128, c, 3); return cv.toDataURL(); };
-    const a = draw({ ...base, status: 'Matched' }), b = draw({ ...base, status: 'Rejected', pipelineStatus: 'Matched' }), c = draw({ ...base, status: 'Candidate' });
+    const a = draw({ ...base, status: 'Matched' }), b = draw({ ...base, status: 'Candidate', pipelineStatus: 'Matched' }), c = draw({ ...base, status: 'Candidate' });
     return { same: a === b, differs: a !== c };
   });
   ok(same.same && same.differs, 'Compare scale follows pipelineStatus ?? status');
