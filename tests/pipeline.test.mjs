@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as P from '../app/js/pipeline/index.js';
+import * as CO from '../app/js/sky/coords.js';
+import * as CF from '../app/js/candidates/format.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fx = JSON.parse(fs.readFileSync(path.join(here, 'fixtures/moving-sky-analyse.json'), 'utf8'));
@@ -55,6 +57,21 @@ ok(ra === 70.42 && dec === 19.18, 'radec centre');
 const [px, py] = P.pixel(field, ...P.radec(field, 37.5, 250.25));
 ok(Math.abs(px - 37.5) < 1e-9 && Math.abs(py - 250.25) < 1e-9, 'pixel inverts radec');
 ok(P.fmtRA(70.42) === '04h 41m 40.8s' && P.fmtDec(19.18) === '+19° 10′ 48″', 'fmtRA / fmtDec');
+// ISS-13: rounding carries instead of printing 60.0s / 60″
+ok(P.fmtRA((8 + 55 / 60 + 59.97 / 3600) * 15) === '08h 56m 00.0s' && P.fmtRA(359.99999) === '00h 00m 00.0s', `fmtRA carries (${P.fmtRA((8 + 55 / 60 + 59.97 / 3600) * 15)})`);
+ok(P.fmtDec(-(7 + 14 / 60 + 59.6 / 3600)) === '−7° 15′ 00″' && P.fmtDec(-(33 + 19 / 60 + 59.8 / 3600)) === '−33° 20′ 00″', 'fmtDec carries');
+ok(P.fmtDec(-0.00001) === '+0° 00′ 00″' && P.fmtDec(-0.5) === '−0° 30′ 00″', 'fmtDec never prints −0° 00′ 00″');
+// ISS-14: both Dec formatters agree on negative zero
+ok(CF.fmtDec(-0.04) === '+0.0°' && CF.fmtDec(-0.04) === CO.fmtDec(-0.04) && CF.fmtDec(-12.34) === CO.fmtDec(-12.34), 'candidates fmtDec matches sky fmtDec');
+// ISS-16: parser consistency
+const nearC = (a, b) => a && Math.abs(a[0] - b[0]) < 1e-6 && Math.abs(a[1] - b[1]) < 1e-6;
+ok(nearC(CO.parseCentre('12h +30d'), [180, 30]) && nearC(CO.parseCentre('12h, -30°'), [180, -30]), 'parseCentre accepts degrees with a d/° unit');
+ok(CO.parseCentre('08h 55m 60s, 0') === null && CO.parseCentre('12h60m, 0') === null && CO.parseCentre('12:60, 0') === null && CO.parseCentre('12 60 0, 0') === null, 'parseCentre rejects 60 minutes / 60 seconds');
+ok(CO.parseCentre('24h, 0') === null && CO.parseGoto('24, 0') === null && CO.parseRA('24h') === null && CO.parseRA('0h') === 0, 'RA 24h is rejected, 0h is fine');
+ok(CO.parseGoto('16h06m +41').raH === 16.1 && nearC(CO.parseCentre('23h59m59s, 0'), [(23 + 59 / 60 + 59 / 3600) * 15, 0]), 'valid RA still parses');
+// ISS-19: CSV formula injection
+ok(CF.csvField('=HYPERLINK("http://x")') === `"'=HYPERLINK(""http://x"")"` && CF.csvField('+1') === "'+1" && CF.csvField('-x') === "'-x" && CF.csvField('@a') === "'@a", 'csvField defuses = + - @');
+ok(CF.csvField(-7.25) === '-7.25' && CF.csvField('plain') === 'plain' && CF.csvField(null) === '', 'csvField leaves numbers and plain text alone');
 
 // 6. spectrum shape
 for (const k of ['asteroid', 'ice', 'star']) { const s = P.spectrum(k); ok(s.length === 102 && Math.abs(s[0][0] - 0.75) < 1e-12 && Math.abs(s[101][0] - 5) < 1e-12, 'spectrum ' + k); }

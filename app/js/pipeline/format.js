@@ -18,8 +18,19 @@ export function pixel(field, ra, dec) {
   return [N / 2 - (ra - ra0) * 3600 / scale * Math.cos(dec0 * Math.PI / 180), N / 2 - (dec - dec0) * 3600 / scale];
 }
 
-export function fmtRA(ra) { ra = ((ra % 360) + 360) % 360; const h = ra / 15, hh = h | 0, m = (h - hh) * 60, mm = m | 0, s = (m - mm) * 60; return `${String(hh).padStart(2, '0')}h ${String(mm).padStart(2, '0')}m ${s.toFixed(1).padStart(4, '0')}s`; }
-export function fmtDec(d) { const sg = d < 0 ? '−' : '+', a = Math.abs(d), dd = a | 0, m = (a - dd) * 60, mm = m | 0, s = (m - mm) * 60; return `${sg}${dd}° ${String(mm).padStart(2, '0')}′ ${s.toFixed(0).padStart(2, '0')}″`; }
+/** RA in degrees → "04h 41m 40.8s". Rounds to the printed precision first, so it never prints "60.0s". */
+export function fmtRA(ra) {
+  const day = 24 * 3600 * 10;                                               // tenths of a second in 24 h
+  const t = Math.round((((ra % 360) + 360) % 360) / 15 * 3600 * 10) % day;
+  const hh = Math.floor(t / 36000), mm = Math.floor(t % 36000 / 600), s = (t % 600) / 10;
+  return `${String(hh).padStart(2, '0')}h ${String(mm).padStart(2, '0')}m ${s.toFixed(1).padStart(4, '0')}s`;
+}
+/** Dec in degrees → "+19° 10′ 48″". Rounds to whole arcseconds first, so it never prints "60″" and never "−0°". */
+export function fmtDec(d) {
+  const t = Math.round(Math.abs(d) * 3600), sg = d < 0 && t > 0 ? '−' : '+';
+  const dd = Math.floor(t / 3600), mm = Math.floor(t % 3600 / 60), s = t % 60;
+  return `${sg}${dd}° ${String(mm).padStart(2, '0')}′ ${String(s).padStart(2, '0')}″`;
+}
 
 /** Model spectrum across the 102 SPHEREx bands (0.75–5 µm). kind: 'asteroid' | 'ice' | 'star'. → [[µm, value], …] */
 export function spectrum(kind) { const pts = []; for (let i = 0; i < 102; i++) { const l = 0.75 + i * (4.25 / 101); let v;

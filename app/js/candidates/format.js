@@ -24,7 +24,10 @@ export const fmtRA = h => {
   if (m === 60) { m = 0; H = (H + 1) % 24; }
   return `${H}h ${pad2(m)}m`;
 };
-export const fmtDec = d => `${d >= 0 ? '+' : '−'}${Math.abs(d).toFixed(1)}°`;
+export const fmtDec = d => {
+  const r = Math.round(d * 10) / 10; // round first, so -0.04 reads "+0.0°", never "−0.0°" (same rule as sky/coords.js)
+  return `${r < 0 ? '−' : '+'}${Math.abs(r).toFixed(1)}°`;
+};
 
 /** Status the pipeline gave this candidate, before any human review. */
 export function pipelineStatus(c) {
@@ -120,7 +123,10 @@ export const visible = (cands, f) => sortList((cands || []).filter(c => matches(
 // ---------- export ----------
 export function csvField(v) {
   if (v === null || v === undefined) return '';
-  const s = typeof v === 'string' ? v : String(v);
+  let s = typeof v === 'string' ? v : String(v);
+  // Spreadsheet formula injection: text starting with = + - @ (or tab/CR) would run as a formula, so defuse it with a
+  // leading apostrophe. Numbers are left alone (a negative Dec is data, not text).
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return /[",\r\n]/.test(s) || /^\s|\s$/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 export const CSV_COLUMNS = ['id', 'name', 'status', 'pipeline_status', 'tag', 'match', 'peak_band', 'shift_arcmin', 'n_scans',

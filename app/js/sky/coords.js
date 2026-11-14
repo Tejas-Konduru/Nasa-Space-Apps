@@ -72,14 +72,16 @@ const SIGN = '[+\\-−–]'; // ASCII plus, ASCII hyphen-minus, Unicode minus, e
 export function parseRA(s) {
   s = s.trim();
   let m = s.match(/^(\d+(?:\.\d+)?)h(?:\s*(\d+(?:\.\d+)?)m?)?(?:\s*(\d+(?:\.\d+)?)s?)?$/i);
-  if (m) return norm(+m[1] + (+m[2] || 0) / 60 + (+m[3] || 0) / 3600);
+  if (m) return sexa(+m[1], +m[2] || 0, +m[3] || 0);
   m = s.match(/^(\d+):(\d+(?:\.\d+)?)(?::(\d+(?:\.\d+)?))?$/);
-  if (m) return norm(+m[1] + +m[2] / 60 + (+m[3] || 0) / 3600);
+  if (m) return sexa(+m[1], +m[2], +m[3] || 0);
   m = s.match(/^(\d+(?:\.\d+)?)(d|°)$/i);
   if (m) return norm(+m[1] / 15);
   m = s.match(/^\d+(?:\.\d+)?$/);
-  if (m) { const v = +s; return v > 24 ? norm(v / 15) : (v === 24 ? 0 : v); }
+  if (m) { const v = +s; return v > 24 ? norm(v / 15) : v === 24 ? null : v; }
   return null;
+  // h m s in range: minutes and seconds below 60, hours below 24 (24h is not a valid RA; 0h is)
+  function sexa(h, mi, se) { return h < 24 && mi < 60 && se < 60 ? norm(h + mi / 60 + se / 3600) : null; }
   function norm(h) { return h > 360 / 15 ? null : ((h % 24) + 24) % 24; }
 }
 
@@ -96,6 +98,9 @@ export function parseDec(s) {
 /** Dec token with optional seconds → degrees: "+41d12m33.5s", "−7°14′42.53″", "-07:14:42.5", "41 12 42", "-12.5". */
 export function parseDecFull(s) {
   s = s.trim();
+  // "30d", "-12.5°": degrees with a unit and no minutes
+  const u = s.match(new RegExp('^(' + SIGN + '?)\\s*(\\d+(?:\\.\\d+)?)\\s*(?:d|°)$', 'i'));
+  if (u) return +u[2] > 90 ? null : (u[1] && u[1] !== '+' ? -+u[2] : +u[2]);
   const m = s.match(new RegExp(`^(${SIGN}?)\\s*(\\d+(?:\\.\\d+)?)(?:\\s*(?:d|°|:|\\s)\\s*(\\d+(?:\\.\\d+)?)(?:\\s*(?:m|′|')|:|\\s)?\\s*(?:(\\d+(?:\\.\\d+)?)\\s*(?:s|″|")?)?)?\\s*$`, 'i'));
   if (!m) return null;
   const v = +m[2] + (+m[3] || 0) / 60 + (+m[4] || 0) / 3600;

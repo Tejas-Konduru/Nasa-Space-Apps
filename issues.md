@@ -116,13 +116,13 @@ During testing, IRSA's `spherex_dr1` SIA endpoint answered **HTTP 502 on about h
 
 | ID | Issue | Evidence |
 |---|---|---|
-| ISS-13 | Wrong rounding in the Field/Live text: `pipeline/format.js` `fmtRA`/`fmtDec` print "60.0s" / "60″" | RA 08h55m59.97s prints `08h 55m 60.0s`; Dec −7°14′59.6″ prints `−7° 14′ 60″`. Visible in the loading box: "Dec −33° 19′ 60″" |
-| ISS-14 | `candidates/format.js` `fmtDec(-0.04)` gives "−0.0°", while `sky/coords.js` deliberately gives "+0.0°" | Two formatters disagree |
+| ISS-13 (fixed) | Wrong rounding in the Field/Live text: `pipeline/format.js` `fmtRA`/`fmtDec` print "60.0s" / "60″" | RA 08h55m59.97s prints `08h 55m 60.0s`; Dec −7°14′59.6″ prints `−7° 14′ 60″`. Visible in the loading box: "Dec −33° 19′ 60″" |
+| ISS-14 (fixed) | `candidates/format.js` `fmtDec(-0.04)` gives "−0.0°", while `sky/coords.js` deliberately gives "+0.0°" | Two formatters disagree |
 | ISS-15 | `radec()` / `pixel()` use a first-order tangent plane. Error against exact TAN at the corners of a 600″ field: 0.3″ at Dec 30°, 0.85″ at 60°, 2.8″ at 80°, 5.7″ at 85°, 30″ at 89° | Used for Add to review list and Show on sky positions; the server uses exact TAN |
-| ISS-16 | `parseCentre('12h +30d')` returns null although `parseDec('30d')` is accepted; `'08h 55m 60s, 0'` is accepted as 55m + 60 s; `'24h, 0'` becomes RA 0 | `sky/coords.js` |
+| ISS-16 (fixed) | `parseCentre('12h +30d')` returns null although `parseDec('30d')` is accepted; `'08h 55m 60s, 0'` is accepted as 55m + 60 s; `'24h, 0'` becomes RA 0 | `sky/coords.js` |
 | ISS-17 | Saturated-star cores appear as holes in the Field image (masked pixels become the frame median) | Barnard's Star, section 3 |
 | ISS-18 | The sky camera cannot look at the celestial poles: `clampPitch` (`sky/index.js:165`) stops at 1.5 rad, so go-to `0h, +90` centres on Dec ±85.9° with no message | North/south pole checks, centre Dec 85.94° |
-| ISS-19 | CSV export does not neutralise cells starting with `=`, `+`, `-`, `@` (spreadsheet formula injection from server-supplied names/notes) | `csvField('=HYPERLINK("http://x")')` is quoted but still starts with `=` |
+| ISS-19 (fixed) | CSV export does not neutralise cells starting with `=`, `+`, `-`, `@` (spreadsheet formula injection from server-supplied names/notes) | `csvField('=HYPERLINK("http://x")')` is quoted but still starts with `=` |
 | ISS-20 | three.js r128 and the Inter font load from cdnjs/Google Fonts with no SRI, and the sky cannot render offline (a clear message is shown instead) | `app/index.html:10-11,110` |
 | ISS-21 | `artifacts/ui-demo/index.html` requests `assets/sky_4k.jpg`, which is not in the snapshot (404 on every load; it falls back to the procedural sky) | Console 404 |
 | ISS-22 | Documentation drift: README/server README say `spherex_qr2 + qr3` (code uses `dr1 + qr3`); README, WRITEUP and PITCH still have `[Team member names]` and `[Video link]`; STATUS.md and README mention `docs/deck/`, removed in `ab2c660`; README says run `python3 -m http.server` | grep of the `*.md` files |
